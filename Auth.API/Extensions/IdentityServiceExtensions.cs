@@ -1,0 +1,200 @@
+﻿using Auth.API.Helpers;
+using Auth.Models.Data;
+using Auth.Models.Entities;
+using Auth.Models.Exceptions;
+using Auth.Models.Request;
+using Auth.Services.Interfaces;
+using Auth.Services.Settings;
+using DotNetEnv;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+
+namespace Auth.API.Extensions
+{
+    public static class IdentityServiceExtensions
+    {
+        public static IServiceCollection AddIdentityServices(this IServiceCollection services, ConfigurationManager configuration)
+        {
+            services.AddIdentity<User, IdentityRole>(options =>
+            {
+                // Password settings
+                options.Password.RequireDigit = true;
+                options.Password.RequireLowercase = true;
+                options.Password.RequireUppercase = true;
+                options.Password.RequireNonAlphanumeric = true;
+                options.Password.RequiredLength = 8;
+
+                // Lockout settings
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+                options.Lockout.MaxFailedAccessAttempts = 5;
+
+                // User settings
+                options.User.RequireUniqueEmail = true;
+                options.SignIn.RequireConfirmedEmail = false; // Require confirmed email
+
+                // Token provider settings
+                options.Tokens.EmailConfirmationTokenProvider = "Default";
+                options.Tokens.PasswordResetTokenProvider = "Default";
+                options.Tokens.AuthenticatorTokenProvider = TokenOptions.DefaultAuthenticatorProvider;
+            })
+            .AddEntityFrameworkStores<ApplicationDbContext>()
+            .AddDefaultTokenProviders();
+
+            var secret = Env.GetString("JWT_SECRET");
+            var issuer = Env.GetString("JWT_ISSUER");
+            var audience = Env.GetString("JWT_AUDIENCE");
+
+            services.Configure<JWTSettings>(opts =>
+            {
+                opts.Secret = secret;
+                opts.Issuer = issuer;
+                opts.Audience = audience;
+                opts.ExpirationInMinutes = 15; // TESTING
+                opts.RefreshTokenExpirationInDays = 7;
+            });
+
+            services.Configure<RefreshTokenSettings>(opts =>
+            {
+                opts.ExpirationInDays = 7;
+                opts.MaxRefreshCount = 100;
+                opts.MaxActiveSessionsPerUser = 5;
+                opts.EnableTokenRotation = true;
+                opts.DetectTokenReuse = true;
+            });
+
+            var key = Encoding.ASCII.GetBytes(secret);
+
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+            .AddJwtBearer(options =>
+            {
+                options.RequireHttpsMetadata = false;
+                options.SaveToken = true;
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(key),
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidIssuer = issuer,
+                    ValidAudience = audience,
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.Zero
+                };
+
+                options.Events = new JwtBearerEvents
+                {
+                    OnAuthenticationFailed = async context =>
+                    {
+                        /// Check if JWT is expired
+                        if (context.Exception is SecurityTokenExpiredException)
+                        {
+                            var httpContext = context.HttpContext;
+                            var refreshToken = httpContext.Request.Cookies["refresh_token"];
+
+                            if (string.IsNullOrEmpty(refreshToken))
+                                return;
+
+                            try
+                            {
+                                var expiredToken = httpContext.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
+                                if (string.IsNullOrEmpty(expiredToken))
+                                    return;
+
+                                var authService = httpContext.RequestServices.GetRequiredService<IAuthService>();
+                                var logger = httpContext.RequestServices.GetRequiredService<ILogger<JwtBearerEvents>>();
+
+                                logger.LogInformation("Trying to refresh expired token");
+
+                                var refreshRequest = new RefreshTokenRequest
+                                {
+                                    Token = expiredToken,
+                                    RefreshToken = refreshToken
+                                };
+
+                                var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+                                var response = await authService.RefreshTokenAsync(refreshRequest, ipAddress);
+
+                                CookieHelper.SetRefreshTokenCookie(httpContext, response.RefreshToken);
+
+                                httpContext.Response.Headers.Add("X-New-Token", response.Token);
+
+                                httpContext.Items["TokenRefreshed"] = true;
+                                httpContext.Items["NewToken"] = response.Token;
+
+                                logger.LogInformation("Token refreshed");
+                            }
+                            catch (Exception ex)
+                            {
+                                var logger = httpContext.RequestServices.GetRequiredService<ILogger<JwtBearerEvents>>();
+                                logger.LogWarning(ex, "Failed refreshing token");
+                            }
+                        }
+                    },
+                    OnChallenge = async context =>
+                    {
+                        var httpContext = context.HttpContext;
+
+                        if (httpContext.Items.ContainsKey("TokenRefreshed"))
+                        {
+                            context.HandleResponse();
+
+                            var response = new
+                            {
+                                success = true,
+                                message = "Token refreshed",
+                                token = httpContext.Items["NewToken"] as string
+                            };
+
+                            httpContext.Response.StatusCode = 200;
+                            httpContext.Response.ContentType = "application/json";
+                            var jsonResponse = System.Text.Json.JsonSerializer.Serialize(response);
+                            await httpContext.Response.WriteAsync(jsonResponse);
+                            return;
+                        }
+
+                        // Only throw if we didn’t refresh
+                        context.HandleResponse();
+                        var logger = httpContext.RequestServices.GetRequiredService<ILogger<JwtBearerEvents>>();
+                        logger.LogWarning("Unauthorized access. Token may be invalid or expired.");
+
+                        httpContext.Response.StatusCode = 401;
+                        httpContext.Response.ContentType = "application/json";
+
+                        var errorResponse = new
+                        {
+                            success = false,
+                            message = "You are not authorized, or token is expired."
+                        };
+
+                        await httpContext.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(errorResponse));
+                    },
+
+                    OnMessageReceived = context =>
+                    {
+                        var token = context.Request.Headers["Authorization"].FirstOrDefault();
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                            {
+                                context.Token = token.Substring("Bearer ".Length).Trim();
+                            }
+                            else
+                            {
+                                context.Token = token;
+                            }
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
+            });
+
+            return services;
+        }
+    }
+}
