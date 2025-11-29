@@ -1,4 +1,5 @@
 ﻿using Auth.Models.Data;
+using Auth.Models.DTOs;
 using Auth.Models.Entities;
 using Auth.Models.Exceptions;
 using Auth.Services.Interfaces;
@@ -33,20 +34,57 @@ namespace Auth.Services.Services
 
             return answers;
         }
+        public async Task SaveDraftAsync(string scholarId, string monthYear, IEnumerable<SaveDraftAnswerDto> draftAnswers)
+        {
+            _logger.LogInformation("Saving draft for scholar {ScholarId} for {MonthYear}", scholarId, monthYear);
+
+            // Check if already submitted - cannot save draft if submitted
+            bool alreadySubmitted = await _context.Answers
+                .AnyAsync(a => a.ScholarId == scholarId && a.MonthYear == monthYear && a.IsSubmitted);
+            if (alreadySubmitted)
+            {
+                throw new ConflictException("Cannot save draft - journal already submitted.");
+            }
+
+            // Delete existing draft answers for this month
+            var existingDrafts = await _context.Answers
+                .Where(a => a.ScholarId == scholarId && a.MonthYear == monthYear && !a.IsSubmitted)
+                .ToListAsync();
+            if (existingDrafts.Any())
+            {
+                _context.Answers.RemoveRange(existingDrafts);
+            }
+
+            // Map DTOs to Answer entities and save new draft answers
+            var answers = draftAnswers.Select(dto => new Answer
+            {
+                QuestionId = dto.QuestionId,
+                Response = dto.Response,
+                ScholarId = scholarId,
+                MonthYear = monthYear,
+                IsSubmitted = false,
+                UpdatedAt = DateTime.UtcNow
+            });
+
+            await _context.Answers.AddRangeAsync(answers);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Draft saved successfully for scholar {ScholarId}", scholarId);
+        }
 
         public async Task SubmitAnswersAsync(string scholarId, string monthYear, IEnumerable<Answer> answers)
         {
             // ✅ Rule 1: Submissions window
             var today = DateTime.UtcNow;
-            if (today.Day < 1 || today.Day > 7)
+            if (today.Day < 1 || today.Day > 8)
             {
                 _logger.LogWarning("Submission attempt outside allowed window for scholar {ScholarId}", scholarId);
-                throw new ValidationException("Submissions are only allowed between the 1st and 7th of the month.");
+                throw new ValidationException("Submissions are only allowed between the 1st and 8th of the month.");
             }
 
             // ✅ Rule 2: Prevent duplicate submissions for the same month
             bool alreadySubmitted = await _context.Answers
-                .AnyAsync(a => a.ScholarId == scholarId && a.MonthYear == monthYear);
+                .AnyAsync(a => a.ScholarId == scholarId && a.MonthYear == monthYear && a.IsSubmitted);
 
             if (alreadySubmitted)
             {
@@ -67,11 +105,23 @@ namespace Auth.Services.Services
                 throw new ValidationException("Submission contains invalid or inactive questions.");
             }
 
-            // ✅ Persist answers
+            // Delete any existing drafts
+            var existingDrafts = await _context.Answers
+                .Where(a => a.ScholarId == scholarId && a.MonthYear == monthYear && !a.IsSubmitted)
+                .ToListAsync();
+
+            if (existingDrafts.Any())
+            {
+                _context.Answers.RemoveRange(existingDrafts);
+            }
+
+            // ✅ Persist answers as submitted
             foreach (var answer in answers)
             {
                 answer.ScholarId = scholarId;
                 answer.MonthYear = monthYear;
+                answer.IsSubmitted = true; // Mark as submitted
+                answer.SubmittedAt = DateTime.UtcNow;
             }
 
             await _context.Answers.AddRangeAsync(answers);

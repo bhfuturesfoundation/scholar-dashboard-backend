@@ -1,6 +1,10 @@
-﻿using Auth.Models.Request;
+﻿using Auth.Models.DTOs;
+using Auth.Models.Entities;
+using Auth.Models.Exceptions;
+using Auth.Models.Request;
 using Auth.Models.Response;
 using Auth.Services.Interfaces;
+using Auth.Services.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -13,11 +17,13 @@ namespace Auth.API.Controllers
     public class JournalController : ControllerBase
     {
         private readonly IJournalService _journalService;
+        private readonly IAnswerService _answerService;
         private readonly ILogger<JournalController> _logger;
 
-        public JournalController(IJournalService journalService, ILogger<JournalController> logger)
+        public JournalController(IJournalService journalService, IAnswerService answerService, ILogger<JournalController> logger)
         {
             _journalService = journalService;
+            _answerService = answerService;
             _logger = logger;
         }
 
@@ -41,6 +47,38 @@ namespace Auth.API.Controllers
             {
                 _logger.LogError(ex, "Error fetching journal questions for {Scholar} in {Month}", scholarId, monthYear);
                 return StatusCode(500, ApiResponse<object>.ErrorResponse("Failed to fetch journal questions"));
+            }
+        }
+
+        [HttpPost("{monthYear}/draft")]
+        public async Task<IActionResult> SaveDraft(string monthYear, [FromBody] IEnumerable<SaveDraftAnswerDto> answers)
+        {
+            var scholarId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (scholarId == null)
+            {
+                _logger.LogWarning("Unauthorized draft save attempt for {MonthYear}", monthYear);
+                return Unauthorized(ApiResponse<object>.ErrorResponse("User not authenticated"));
+            }
+
+            try
+            {
+                await _answerService.SaveDraftAsync(scholarId, monthYear, answers);
+                _logger.LogInformation("Draft saved for scholar {ScholarId} for {MonthYear}", scholarId, monthYear);
+
+                return Ok(ApiResponse<object>.SuccessResponse(
+                    null,
+                    $"Draft saved successfully for {monthYear}"
+                ));
+            }
+            catch (ConflictException ex)
+            {
+                _logger.LogWarning(ex, "Conflict while saving draft for {ScholarId} for {MonthYear}", scholarId, monthYear);
+                return Conflict(ApiResponse<object>.ErrorResponse(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving draft for scholar {ScholarId} for {MonthYear}", scholarId, monthYear);
+                return StatusCode(500, ApiResponse<object>.ErrorResponse("Failed to save draft"));
             }
         }
 

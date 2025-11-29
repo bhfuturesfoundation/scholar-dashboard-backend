@@ -1,4 +1,5 @@
-﻿using Auth.Models.Entities;
+﻿using Auth.Models.DTOs;
+using Auth.Models.Entities;
 
 namespace Auth.Services.Interfaces
 {
@@ -6,5 +7,6 @@ namespace Auth.Services.Interfaces
     {
         Task SubmitAnswersAsync(string scholarId, string monthYear, IEnumerable<Answer> answers);
         Task<IEnumerable<Answer>> GetAnswersForMonthAsync(string scholarId, string monthYear);
+        Task SaveDraftAsync(string scholarId, string monthYear, IEnumerable<SaveDraftAnswerDto> draftAnswers);
     }
 }

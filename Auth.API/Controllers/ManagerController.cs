@@ -8,7 +8,7 @@ namespace Auth.API.Controllers
 {
     [Route("api/manager")]
     [ApiController]
-    [Authorize(Roles = "ProgramManager")]
+    [Authorize]
     public class ManagerController : ControllerBase
     {
         private readonly IManagerService _managerService;

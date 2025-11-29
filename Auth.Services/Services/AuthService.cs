@@ -69,7 +69,7 @@ namespace Auth.Services.Services
                 {
                     Token = jwtPass,
                     RefreshToken = refreshPass,
-                    Expiration = DateTime.UtcNow.AddMinutes(15),
+                    Expiration = DateTime.UtcNow.AddMinutes(60),
                     RequiresPasswordChange = true,
                     RequiresTwoFactor = false,
                     EmailConfirmed = emailConfirmed
@@ -99,7 +99,7 @@ namespace Auth.Services.Services
             {
                 Token = jwtToken,
                 RefreshToken = refreshToken,
-                Expiration = DateTime.UtcNow.AddMinutes(15),
+                Expiration = DateTime.UtcNow.AddMinutes(60),
                 RequiresTwoFactor = false,
                 EmailConfirmed = emailConfirmed
             };
