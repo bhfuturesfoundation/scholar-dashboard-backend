@@ -27,13 +27,19 @@ namespace Auth.API.Extensions
             }
             else
             {
-                connectionString = configuration.GetConnectionString("DefaultConnection")
-                                   ?? Environment.GetEnvironmentVariable("DB_CONNECTION_STRING");
+                // Local PostgreSQL
+                var host = Environment.GetEnvironmentVariable("PGHOST") ?? "localhost";
+                var port = Environment.GetEnvironmentVariable("PGPORT") ?? "5432";
+                var database = Environment.GetEnvironmentVariable("PGDATABASE") ?? "scholar_local";
+                var username = Environment.GetEnvironmentVariable("PGUSER") ?? "postgres";
+                var password = Environment.GetEnvironmentVariable("PGPASSWORD") ?? "1234";
 
-                Console.WriteLine("💻 Running locally → Using SQL Server.");
+                connectionString = $"Host={host};Port={port};Database={database};Username={username};Password={password};Pooling=true;Trust Server Certificate=true";
+
+                Console.WriteLine($"💻 Running locally → Using PostgreSQL database at {host}:{port}");
 
                 services.AddDbContext<ApplicationDbContext>(options =>
-                    options.UseSqlServer(connectionString));
+                    options.UseNpgsql(connectionString));
             }
 
             return services;

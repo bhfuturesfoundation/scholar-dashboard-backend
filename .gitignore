@@ -96,6 +96,3 @@ TestResults/
 _ReSharper*/
 *.[Rr]e[Ss]harper
 *.DotSettings.user
-
-# Entity Framework Core
-Migrations/
