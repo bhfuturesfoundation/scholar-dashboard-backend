@@ -15,6 +15,7 @@ using System.Text;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IResendService _resendService;
     private readonly IUserService _userService;
     private readonly ITwoFactorService _twoFactorService;
     private readonly IEmailService _emailService;
@@ -22,12 +23,14 @@ public class AuthController : ControllerBase
 
     public AuthController(
         IAuthService authService,
+        IResendService resendService,
         IUserService userService,
         ITwoFactorService twoFactorService,
         IEmailService emailService,
         ILogger<AuthController> logger)
     {
         _authService = authService;
+        _resendService = resendService;
         _userService = userService;
         _twoFactorService = twoFactorService;
         _emailService = emailService;
@@ -255,6 +258,67 @@ public class AuthController : ControllerBase
         {
             _logger.LogWarning(ex, "Failed to change password for user {UserId}", GetUserId());
             return BadRequest(ApiResponse<bool>.ErrorResponse("Failed to change password. " + ex.Message));
+        }
+    }
+    [HttpPost("forgot-password")]
+    public async Task<ActionResult<ApiResponse<bool>>> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        try
+        {
+            var user = await _userService.GetByEmailAsync(request.Email);
+
+            if (user == null)
+            {
+                // ✅ Never reveal whether email exists
+                return Ok(ApiResponse<bool>.SuccessResponse(true, "If this email exists, a reset link has been sent."));
+            }
+
+            var token = await _userService.GeneratePasswordResetTokenAsync(user);
+            var tokenEncoded = System.Web.HttpUtility.UrlEncode(token);
+
+            var resetLink = $"https://https://scholar-dashboard-frontend.vercel.app/reset-password?email={user.Email}&token={tokenEncoded}";
+
+            await _resendService.SendEmailAsync(
+                user.Email,
+                "Reset Your Password",
+                $"<p>Click <a href='{resetLink}'>here</a> to reset your password. This link is valid for 1 hour.</p>"
+            );
+
+            return Ok(ApiResponse<bool>.SuccessResponse(true, "If this email exists, a reset link has been sent."));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send password reset email for {Email}", request.Email);
+            return BadRequest(ApiResponse<bool>.ErrorResponse("Failed to send password reset email. " + ex.Message));
+        }
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<ActionResult<ApiResponse<bool>>> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        try
+        {
+            var user = await _userService.GetByEmailAsync(request.Email);
+            if (user == null)
+                return BadRequest(ApiResponse<bool>.ErrorResponse("Invalid reset request."));
+
+            var result = await _userService.ResetPasswordAsync(user, request.Token, request.NewPassword);
+            if (!result.Succeeded)
+            {
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                return BadRequest(ApiResponse<bool>.ErrorResponse(errors));
+            }
+
+            // Optional: remove MustChangePassword if needed
+            user.MustChangePassword = false;
+            await _userService.UpdateUserAsync(user);
+
+            return Ok(ApiResponse<bool>.SuccessResponse(true, "Password has been reset successfully."));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to reset password for {Email}", request.Email);
+            return BadRequest(ApiResponse<bool>.ErrorResponse("Failed to reset password. " + ex.Message));
         }
     }
 }

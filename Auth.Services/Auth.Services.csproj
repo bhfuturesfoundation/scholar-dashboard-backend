@@ -24,6 +24,7 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="RabbitMQ.Client" Version="6.5.0" />
+		<PackageReference Include="Resend" Version="0.2.1" />
 	</ItemGroup>
 
 	<ItemGroup>

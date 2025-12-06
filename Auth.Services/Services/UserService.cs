@@ -183,5 +183,32 @@ namespace Auth.Services.Services
             var user = await GetUserAsync(userId, throwIfNotFound: true);
             return user.Email;
         }
+        public async Task<string> GeneratePasswordResetTokenAsync(User user)
+        {
+            return await _userManager.GeneratePasswordResetTokenAsync(user);
+        }
+
+        public async Task<IdentityResult> ResetPasswordAsync(User user, string token, string newPassword)
+        {
+            return await _userManager.ResetPasswordAsync(user, token, newPassword);
+        }
+
+        public async Task<User?> GetByEmailAsync(string email)
+        {
+            return await _userManager.FindByEmailAsync(email);
+        }
+        public async Task UpdateUserAsync(User user)
+        {
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+            {
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                _logger.LogWarning("Failed to update user {Email}: {Errors}", user.Email, errors);
+                throw new ValidationException(errors);
+            }
+
+            _logger.LogInformation("User {Email} updated successfully", user.Email);
+        }
+
     }
 }

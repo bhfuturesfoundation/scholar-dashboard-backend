@@ -177,5 +177,42 @@ namespace Auth.Services.Services
                 throw;
             }
         }
+
+        public async Task RequestPasswordResetAsync(ForgotPasswordRequest request)
+        {
+            var user = await _userService.GetByEmailAsync(request.Email);
+            if (user == null)
+            {
+                // Do not reveal user existence
+                return;
+            }
+
+            // Generate token
+            var token = await _userService.GeneratePasswordResetTokenAsync(user);
+
+            // Encode token for URL
+            var tokenEncoded = System.Web.HttpUtility.UrlEncode(token);
+
+            // Build reset link (frontend will handle /reset-password page)
+            var resetLink = $"https://yourfrontend.com/reset-password?email={user.Email}&token={tokenEncoded}";
+
+            // Send email
+            await _emailService.SendEmailAsync(user.Email, "Reset your password",
+                $"<p>Click <a href='{resetLink}'>here</a> to reset your password. This link is valid for 1 hour.</p>");
+        }
+        public async Task ResetPasswordAsync(ResetPasswordRequest request)
+        {
+            var user = await _userService.GetByEmailAsync(request.Email);
+            if (user == null)
+                throw new Exception("Invalid request");
+
+            var result = await _userService.ResetPasswordAsync(user, request.Token, request.NewPassword);
+
+            if (!result.Succeeded)
+                throw new Exception("Failed to reset password");
+
+            // Optional: force user to login again
+        }
+
     }
 }

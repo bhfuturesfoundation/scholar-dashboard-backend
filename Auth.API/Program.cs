@@ -42,6 +42,7 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IEmailService, EmailService>();
+builder.Services.AddSingleton<IResendService, ResendEmailService>();
 
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ISkillService, SkillService>();
