@@ -266,22 +266,27 @@ public class AuthController : ControllerBase
         try
         {
             var user = await _userService.GetByEmailAsync(request.Email);
-
             if (user == null)
             {
-                // ✅ Never reveal whether email exists
+                _logger.LogInformation("Forgot password requested for non-existent email: {Email}", request.Email);
                 return Ok(ApiResponse<bool>.SuccessResponse(true, "If this email exists, a reset link has been sent."));
+            }
+
+            if (string.IsNullOrWhiteSpace(user.Email))
+            {
+                _logger.LogWarning("User exists but email is empty: {UserId}", user.Id);
+                return BadRequest(ApiResponse<bool>.ErrorResponse("Cannot send email: user email is empty."));
             }
 
             var token = await _userService.GeneratePasswordResetTokenAsync(user);
             var tokenEncoded = System.Web.HttpUtility.UrlEncode(token);
 
-            var resetLink = $"https://https://scholar-dashboard-frontend.vercel.app/reset-password?email={user.Email}&token={tokenEncoded}";
+            var resetLink = $"https://scholar-dashboard-frontend.vercel.app/reset-password?email={user.Email}&token={tokenEncoded}";
 
+            // Send using existing EmailJS service with link injected
             await _resendService.SendEmailAsync(
                 user.Email,
-                "Reset Your Password",
-                $"<p>Click <a href='{resetLink}'>here</a> to reset your password. This link is valid for 1 hour.</p>"
+                resetLink
             );
 
             return Ok(ApiResponse<bool>.SuccessResponse(true, "If this email exists, a reset link has been sent."));
@@ -292,6 +297,7 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse<bool>.ErrorResponse("Failed to send password reset email. " + ex.Message));
         }
     }
+
 
     [HttpPost("reset-password")]
     public async Task<ActionResult<ApiResponse<bool>>> ResetPassword([FromBody] ResetPasswordRequest request)

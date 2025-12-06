@@ -24,7 +24,7 @@ namespace Auth.Services.Services
                 ?? throw new Exception("EMAILJS_PUBLIC_KEY is not set in .env");
         }
 
-        public async Task SendEmailAsync(string to, string subject, string htmlBody)
+        public async Task SendEmailAsync(string to, string resetLink)
         {
             var payload = new
             {
@@ -33,9 +33,8 @@ namespace Auth.Services.Services
                 user_id = _publicKey,
                 template_params = new
                 {
-                    to_email = to,
-                    subject = subject,
-                    html_body = htmlBody
+                    email = to,
+                    link = resetLink,
                 }
             };
 

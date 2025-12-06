@@ -2,6 +2,6 @@
 {
     public interface IResendService
     {
-        Task SendEmailAsync(string to, string subject, string htmlBody);
+        Task SendEmailAsync(string to, string resetLink);
     }
 }
