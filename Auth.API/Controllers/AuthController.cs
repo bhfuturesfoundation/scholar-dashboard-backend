@@ -175,7 +175,6 @@ public class AuthController : ControllerBase
 
 
     [Authorize]
-    [EnableRateLimiting("email-only")]
     [HttpGet("current-user")]
     public async Task<ActionResult<ApiResponse<CurrentUserResponse>>> GetCurrentUser()
     {

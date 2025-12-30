@@ -48,6 +48,7 @@ builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ISkillService, SkillService>();
 builder.Services.AddScoped<IAnswerService, AnswerService>();
 builder.Services.AddScoped<IJournalService, JournalService>();
+builder.Services.AddScoped<IMentorMenteeService, MentorMenteeService>();
 
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddMapster();
@@ -121,5 +122,6 @@ using (var scope = app.Services.CreateScope())
 await SeedData.SeedRolesAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedQuestionsAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedUsersAsync(app.Services.CreateScope().ServiceProvider);
+await SeedData.SeedMentorsAsync(app.Services.CreateScope().ServiceProvider);
 
 app.Run();

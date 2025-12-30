@@ -16,6 +16,8 @@ namespace Auth.API.Seed
     {
         private const string DropboxCsvUrl =
              "https://www.dropbox.com/scl/fi/5iiszsu9hn3inirp5tqhc/users.csv?rlkey=lzegatdz0wlqa5gbodffmmuhi&st=id3qung4&dl=1";
+        private const string DropboxMentorsCsvUrl =
+             "https://www.dropbox.com/scl/fi/ixzp98v8nn0siqf3uivpq/Mentors_for_IPJ.csv?rlkey=sht5r8416h0j6mgkdzinep8hz&st=90yshjpo&dl=1";
 
         public static async Task SeedUsersAsync(IServiceProvider serviceProvider)
         {
@@ -137,6 +139,216 @@ namespace Auth.API.Seed
 
             logger.LogInformation("User seeding finished. Created: {Created}, Skipped: {Skipped}. Passwords uploaded to Dropbox as {File}",
                 createdCount, skippedCount, fileName);
+        }
+
+        public static async Task SeedMentorsAsync(IServiceProvider serviceProvider)
+        {
+            using var scope = serviceProvider.CreateScope();
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<SeedData>>();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            logger.LogInformation("Starting mentor seeding...");
+
+            logger.LogInformation("Downloading mentors CSV from Dropbox: {Url}", DropboxMentorsCsvUrl);
+
+            using var http = new HttpClient();
+            http.Timeout = TimeSpan.FromMinutes(5);
+
+            var csvBytes = await http.GetByteArrayAsync(DropboxMentorsCsvUrl);
+            logger.LogInformation("Downloaded {Size} bytes from Dropbox", csvBytes.Length);
+
+            using var memoryStream = new MemoryStream(csvBytes);
+            using var reader = new StreamReader(memoryStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+
+            // Log the first few lines for debugging
+            var firstLine = await reader.ReadLineAsync();
+            logger.LogInformation("CSV Header: {Header}", firstLine);
+            memoryStream.Position = 0; // Reset stream
+
+            using var reader2 = new StreamReader(memoryStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            using var csv = new CsvReader(reader2, new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                HeaderValidated = null,
+                MissingFieldFound = null,
+                BadDataFound = null,
+                TrimOptions = CsvHelper.Configuration.TrimOptions.Trim,
+                Encoding = Encoding.UTF8,
+                DetectDelimiter = true,
+                PrepareHeaderForMatch = args => args.Header.Trim()
+            });
+
+            var records = csv.GetRecords<MentorCsvRecord>().ToList();
+
+            logger.LogInformation("Successfully parsed {Count} records from CSV", records.Count);
+
+            // Log first record for debugging
+            if (records.Any())
+            {
+                var first = records.First();
+                logger.LogInformation("Sample record - Mentor: '{MentorName}' ({MentorEmail}), Scholar: '{ScholarName}' ({ScholarEmail})",
+                    first.MentorName ?? "NULL",
+                    first.MentorEmail ?? "NULL",
+                    first.Scholar ?? "NULL",
+                    first.ScholarEmail ?? "NULL");
+            }
+
+            int createdMentorsCount = 0;
+            int skippedMentorsCount = 0;
+            int assignedMenteesCount = 0;
+            int failedAssignmentsCount = 0;
+
+            // Keep passwords in memory only
+            var sb = new StringBuilder();
+            using var stringWriter = new StringWriter(sb, CultureInfo.InvariantCulture);
+            using var pwCsv = new CsvWriter(stringWriter, CultureInfo.InvariantCulture);
+
+            pwCsv.WriteField("Mentor Email");
+            pwCsv.WriteField("Mentor Password");
+            pwCsv.NextRecord();
+
+            var random = new Random();
+            string GeneratePassword(string firstName, string lastName)
+                => $"{firstName[0]}{lastName}{random.Next(10, 99)}!{(char)('A' + random.Next(0, 26))}";
+
+            // Dictionary to track created mentors to avoid duplicates
+            var processedMentors = new Dictionary<string, User>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in records)
+            {
+                if (string.IsNullOrWhiteSpace(r.MentorEmail))
+                {
+                    logger.LogWarning("Skipped mentor with missing email: {Name}", r.MentorName ?? "(null)");
+                    skippedMentorsCount++;
+                    continue;
+                }
+
+                User mentor;
+
+                // Check if we already processed this mentor in this run
+                if (processedMentors.ContainsKey(r.MentorEmail))
+                {
+                    mentor = processedMentors[r.MentorEmail];
+                    logger.LogInformation("Mentor {Email} already processed in this run", r.MentorEmail);
+                }
+                else
+                {
+                    // Check if mentor already exists in database
+                    mentor = await userManager.FindByEmailAsync(r.MentorEmail);
+
+                    if (mentor == null)
+                    {
+                        // Create new mentor
+                        var pwd = GeneratePassword(r.MentorFirstName, r.MentorLastName);
+                        mentor = new User
+                        {
+                            UserName = r.MentorEmail,
+                            Email = r.MentorEmail,
+                            FirstName = r.MentorFirstName,
+                            LastName = r.MentorLastName,
+                            Title = "Mentor",
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow,
+                            IsActive = true,
+                            MustChangePassword = true
+                        };
+
+                        var result = await userManager.CreateAsync(mentor, pwd);
+                        if (!result.Succeeded)
+                        {
+                            logger.LogError("Failed to create mentor {Email}: {Errors}", r.MentorEmail,
+                                string.Join(", ", result.Errors.Select(e => e.Description)));
+                            skippedMentorsCount++;
+                            continue;
+                        }
+
+                        // Add to in-memory CSV
+                        pwCsv.WriteField(r.MentorEmail);
+                        pwCsv.WriteField(pwd);
+                        pwCsv.NextRecord();
+
+                        createdMentorsCount++;
+                        logger.LogInformation("Created mentor: {Email}", r.MentorEmail);
+                    }
+                    else
+                    {
+                        logger.LogInformation("Mentor already exists: {Email}", r.MentorEmail);
+                        skippedMentorsCount++;
+                    }
+
+                    // Assign Mentor role if not already assigned
+                    if (!await userManager.IsInRoleAsync(mentor, "Mentor"))
+                    {
+                        var roleResult = await userManager.AddToRoleAsync(mentor, "Mentor");
+                        if (!roleResult.Succeeded)
+                        {
+                            logger.LogWarning("Failed to assign Mentor role to {Email}: {Errors}",
+                                r.MentorEmail, string.Join(", ", roleResult.Errors.Select(e => e.Description)));
+                        }
+                        else
+                        {
+                            logger.LogInformation("Assigned Mentor role to {Email}", r.MentorEmail);
+                        }
+                    }
+
+                    processedMentors[r.MentorEmail] = mentor;
+                }
+
+                // Now assign the scholar (mentee) to this mentor
+                if (!string.IsNullOrWhiteSpace(r.ScholarEmail))
+                {
+                    var scholar = await userManager.FindByEmailAsync(r.ScholarEmail.Trim());
+                    if (scholar != null)
+                    {
+                        if (scholar.MentorId != mentor.Id)
+                        {
+                            scholar.MentorId = mentor.Id;
+                            scholar.UpdatedAt = DateTime.UtcNow;
+
+                            var updateResult = await userManager.UpdateAsync(scholar);
+                            if (updateResult.Succeeded)
+                            {
+                                assignedMenteesCount++;
+                                logger.LogInformation("Assigned scholar {ScholarEmail} to mentor {MentorEmail}",
+                                    r.ScholarEmail, r.MentorEmail);
+                            }
+                            else
+                            {
+                                failedAssignmentsCount++;
+                                logger.LogError("Failed to assign scholar {ScholarEmail} to mentor {MentorEmail}: {Errors}",
+                                    r.ScholarEmail, r.MentorEmail,
+                                    string.Join(", ", updateResult.Errors.Select(e => e.Description)));
+                            }
+                        }
+                        else
+                        {
+                            logger.LogInformation("Scholar {ScholarEmail} already assigned to mentor {MentorEmail}",
+                                r.ScholarEmail, r.MentorEmail);
+                        }
+                    }
+                    else
+                    {
+                        failedAssignmentsCount++;
+                        logger.LogWarning("Scholar not found: {ScholarEmail} for mentor {MentorEmail}",
+                            r.ScholarEmail, r.MentorEmail);
+                    }
+                }
+            }
+
+            await context.SaveChangesAsync();
+
+            // Upload mentor passwords to Dropbox
+            if (createdMentorsCount > 0)
+            {
+                var mentorPasswordsFileName = $"/generated-mentor-passwords-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
+                await DropboxUploader.UploadTextAsync(mentorPasswordsFileName, sb.ToString());
+                logger.LogInformation("Mentor passwords uploaded to Dropbox as {File}", mentorPasswordsFileName);
+            }
+
+            logger.LogInformation(
+                "Mentor seeding finished. Created mentors: {CreatedMentors}, Skipped mentors: {SkippedMentors}, " +
+                "Assigned mentees: {AssignedMentees}, Failed assignments: {FailedAssignments}",
+                createdMentorsCount, skippedMentorsCount, assignedMenteesCount, failedAssignmentsCount);
         }
 
         public static async Task SeedRolesAsync(IServiceProvider serviceProvider)

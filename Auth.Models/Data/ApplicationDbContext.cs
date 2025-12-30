@@ -8,7 +8,7 @@ namespace Auth.Models.Data
     public class ApplicationDbContext : IdentityDbContext<User>
     {
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
-           : base(options)
+            : base(options)
         {
         }
 
@@ -22,9 +22,7 @@ namespace Auth.Models.Data
         {
             base.OnModelCreating(builder);
 
-            //builder.Ignore<IdentityUserClaim<string>>();
             builder.Ignore<IdentityUserLogin<string>>();
-            //builder.Ignore<IdentityUserToken<string>>();
             builder.Ignore<IdentityRoleClaim<string>>();
             builder.Ignore<IdentityRole<string>>();
 
@@ -33,6 +31,16 @@ namespace Auth.Models.Data
                 .WithMany()
                 .HasForeignKey(rt => rt.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<User>()
+                .HasOne(u => u.Mentor)
+                .WithMany(u => u.Scholars)
+                .HasForeignKey(u => u.MentorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<User>()
+                .HasIndex(u => u.MentorId)
+                .IsUnique(false);
         }
     }
 }

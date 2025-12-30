@@ -5,8 +5,8 @@ namespace Auth.Services.Interfaces
 {
     public interface ISkillService
     {
-        Task<IEnumerable<ScholarSkillDto>> GetActiveSkillsAsync(string scholarId);
-        Task AddSkillAsync(string scholarId, Skill skill, int slot);
-        Task DeactivateSkillAsync(int skillId);
+        Task<IEnumerable<ScholarSkillDto>> GetSkillsAsync(string scholarId);
+        Task<ScholarSkillDto> AddOrUpdateSkillAsync(string scholarId, int slot, string skillAnswer);
+        Task ToggleSkillStatusAsync(int skillId);
     }
 }
