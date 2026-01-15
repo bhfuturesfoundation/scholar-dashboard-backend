@@ -49,6 +49,7 @@ builder.Services.AddScoped<ISkillService, SkillService>();
 builder.Services.AddScoped<IAnswerService, AnswerService>();
 builder.Services.AddScoped<IJournalService, JournalService>();
 builder.Services.AddScoped<IMentorMenteeService, MentorMenteeService>();
+builder.Services.AddScoped<IVolunteeringService, VolunteeringService>();
 
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddMapster();
