@@ -10,5 +10,7 @@ namespace Auth.Services.Interfaces
     public interface IVolunteeringService
     {
         Task<IEnumerable<VolunteerDto>> GetTopVolunteersAsync();
+        Task<IEnumerable<VolunteerDto>> GetAllVolunteersAsync();
+        Task<IEnumerable<VolunteerWithTeamDto>> GetVolunteersWithTeamLeadersAsync();
     }
 }

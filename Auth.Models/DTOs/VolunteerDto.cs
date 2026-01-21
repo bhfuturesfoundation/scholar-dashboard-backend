@@ -17,4 +17,13 @@ namespace Auth.Models.DTOs
         public int WithinBHFFHours { get; set; }
         public int TotalVolunteeringHours { get; set; }
     }
+
+    public class VolunteerWithTeamDto
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Surname { get; set; } = string.Empty;
+        public string Team { get; set; } = string.Empty;
+        public string PlacementType { get; set; } = string.Empty;
+        public string TeamLeader { get; set; } = string.Empty;
+    }
 }
