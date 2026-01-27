@@ -73,7 +73,8 @@ namespace Auth.Services.Services
                     MenteeName = $"{u.FirstName} {u.LastName}",
                     FirstName = u.FirstName,
                     LastName = u.LastName,
-                    Title = u.Title
+                    Title = u.Title,
+                    AllowMentorJournalAccess = u.AllowMentorJournalAccess
                 })
                 .OrderBy(m => m.FirstName)
                 .ThenBy(m => m.LastName)
@@ -160,7 +161,8 @@ namespace Auth.Services.Services
                     MenteeName = $"{mentee.FirstName} {mentee.LastName}",
                     FirstName = mentee.FirstName,
                     LastName = mentee.LastName,
-                    Title = mentee.Title
+                    Title = mentee.Title,
+                    AllowMentorJournalAccess = mentee.AllowMentorJournalAccess
                 },
                 Journals = submissions
             };
@@ -175,27 +177,22 @@ namespace Auth.Services.Services
                 return null;
             }
 
-            // Get the mentee's skills
             var skills = await _context.Skills
                 .Where(s => s.ScholarId == menteeId && s.Active)
                 .ToListAsync();
 
-            // Get all questions
             var questions = await _context.Questions
                 .Where(q => q.Active)
                 .OrderBy(q => q.Order)
                 .ToListAsync();
 
-            // Get answers for the specific month
             var answers = await _context.Answers
                 .Where(a => a.ScholarId == menteeId && a.MonthYear == monthYear)
                 .ToListAsync();
 
-            // Get submission info
             var submission = await _context.JournalSubmissions
                 .FirstOrDefaultAsync(js => js.ScholarId == menteeId && js.MonthYear == monthYear);
 
-            // Build the question DTOs
             var questionDtos = questions.Select(q =>
             {
                 var answer = answers.FirstOrDefault(a => a.QuestionId == q.QuestionId);
@@ -225,7 +222,8 @@ namespace Auth.Services.Services
                     MenteeName = $"{mentee.FirstName} {mentee.LastName}",
                     FirstName = mentee.FirstName,
                     LastName = mentee.LastName,
-                    Title = mentee.Title
+                    Title = mentee.Title,
+                    AllowMentorJournalAccess = mentee.AllowMentorJournalAccess
                 },
                 MonthYear = monthYear,
                 Questions = questionDtos,
@@ -241,14 +239,19 @@ namespace Auth.Services.Services
 
             foreach (var mentee in mentees)
             {
-                var menteeJournals = await GetMenteeJournalsAsync(mentee.MenteeId);
-                if (menteeJournals != null)
+                // Only include journals if mentee has granted access
+                if (mentee.AllowMentorJournalAccess)
                 {
-                    result.Add(menteeJournals);
+                    var menteeJournals = await GetMenteeJournalsAsync(mentee.MenteeId);
+                    if (menteeJournals != null)
+                    {
+                        result.Add(menteeJournals);
+                    }
                 }
             }
 
-            _logger.LogInformation("Retrieved journals for {Count} mentees of mentor {MentorId}", result.Count, mentorId);
+            _logger.LogInformation("Retrieved journals for {Count} mentees (with permission) of mentor {MentorId}",
+                result.Count, mentorId);
             return result;
         }
 
@@ -289,8 +292,6 @@ namespace Auth.Services.Services
                 return null;
             }
 
-            // Fetch the mentor directly without role checking
-            // The MentorId relationship itself proves this user is their mentor
             var mentor = await _userManager.FindByIdAsync(mentee.MentorId);
             if (mentor == null)
             {
@@ -328,7 +329,8 @@ namespace Auth.Services.Services
                 MenteeName = $"{mentee.FirstName} {mentee.LastName}",
                 FirstName = mentee.FirstName,
                 LastName = mentee.LastName,
-                Title = mentee.Title
+                Title = mentee.Title,
+                AllowMentorJournalAccess = mentee.AllowMentorJournalAccess
             };
 
             MentorDto mentorDto = null;
@@ -371,8 +373,72 @@ namespace Auth.Services.Services
                 MenteeName = $"{mentee.FirstName} {mentee.LastName}",
                 FirstName = mentee.FirstName,
                 LastName = mentee.LastName,
-                Title = mentee.Title
+                Title = mentee.Title,
+                AllowMentorJournalAccess = mentee.AllowMentorJournalAccess
             };
+        }
+
+        // ==================== PERMISSION METHODS ====================
+
+        public async Task<bool> HasMentorJournalAccessAsync(string menteeId)
+        {
+            var mentee = await _userManager.FindByIdAsync(menteeId);
+            if (mentee == null)
+            {
+                _logger.LogWarning("Mentee not found with ID: {MenteeId}", menteeId);
+                return false;
+            }
+
+            return mentee.AllowMentorJournalAccess;
+        }
+
+        public async Task<bool> UpdateMentorJournalAccessAsync(string menteeId, bool allowAccess)
+        {
+            var mentee = await _userManager.FindByIdAsync(menteeId);
+            if (mentee == null)
+            {
+                _logger.LogWarning("Mentee not found with ID: {MenteeId}", menteeId);
+                return false;
+            }
+
+            mentee.AllowMentorJournalAccess = allowAccess;
+            mentee.UpdatedAt = DateTime.UtcNow;
+
+            var result = await _userManager.UpdateAsync(mentee);
+
+            if (result.Succeeded)
+            {
+                _logger.LogInformation("Mentee {MenteeId} {Action} mentor journal access",
+                    menteeId, allowAccess ? "granted" : "revoked");
+                return true;
+            }
+
+            _logger.LogError("Failed to update journal access for mentee {MenteeId}: {Errors}",
+                menteeId, string.Join(", ", result.Errors.Select(e => e.Description)));
+            return false;
+        }
+
+        public async Task<bool> CanMentorAccessJournalAsync(string mentorId, string menteeId)
+        {
+            // First verify the mentor-mentee relationship
+            var isMenteeOfMentor = await IsMenteeOfMentorAsync(menteeId, mentorId);
+            if (!isMenteeOfMentor)
+            {
+                _logger.LogWarning("Mentee {MenteeId} does not belong to mentor {MentorId}",
+                    menteeId, mentorId);
+                return false;
+            }
+
+            // Then check if access is granted
+            var hasAccess = await HasMentorJournalAccessAsync(menteeId);
+
+            if (!hasAccess)
+            {
+                _logger.LogInformation("Mentor {MentorId} does not have journal access for mentee {MenteeId}",
+                    mentorId, menteeId);
+            }
+
+            return hasAccess;
         }
     }
 }

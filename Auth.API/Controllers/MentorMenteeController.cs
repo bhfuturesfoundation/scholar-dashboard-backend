@@ -10,6 +10,7 @@ namespace Auth.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class MentorMenteeController : ControllerBase
     {
         private readonly IMentorMenteeService _mentorMenteeService;
@@ -85,7 +86,7 @@ namespace Auth.API.Controllers
         }
 
         /// <summary>
-        /// Gets a specific mentee's journal history
+        /// Gets a specific mentee's journal history (requires mentee's permission)
         /// </summary>
         [HttpGet("mentee/{menteeId}/journals")]
         public async Task<ActionResult<MenteeJournalDto>> GetMenteeJournals(string menteeId)
@@ -96,13 +97,19 @@ namespace Auth.API.Controllers
                 return Unauthorized();
             }
 
-            // Verify the mentee belongs to this mentor (unless admin)
+            // Admins can access without permission check
             if (!User.IsInRole("Admin"))
             {
-                var isMenteeOfMentor = await _mentorMenteeService.IsMenteeOfMentorAsync(menteeId, userId);
-                if (!isMenteeOfMentor)
+                // Check if mentor has permission to access journals
+                var canAccess = await _mentorMenteeService.CanMentorAccessJournalAsync(userId, menteeId);
+                if (!canAccess)
                 {
-                    return Forbid();
+                    return StatusCode(403, new
+                    {
+                        message = "You do not have permission to view this mentee's journals. The mentee must grant you access first.",
+                        accessDenied = true,
+                        requiresPermission = true
+                    });
                 }
             }
 
@@ -116,7 +123,7 @@ namespace Auth.API.Controllers
         }
 
         /// <summary>
-        /// Gets a specific mentee's journal for a particular month
+        /// Gets a specific mentee's journal for a particular month (requires mentee's permission)
         /// </summary>
         [HttpGet("mentee/{menteeId}/journal/{monthYear}")]
         public async Task<ActionResult<MenteeJournalDetailDto>> GetMenteeJournalForMonth(
@@ -129,13 +136,19 @@ namespace Auth.API.Controllers
                 return Unauthorized();
             }
 
-            // Verify the mentee belongs to this mentor (unless admin)
+            // Admins can access without permission check
             if (!User.IsInRole("Admin"))
             {
-                var isMenteeOfMentor = await _mentorMenteeService.IsMenteeOfMentorAsync(menteeId, userId);
-                if (!isMenteeOfMentor)
+                // Check if mentor has permission to access journals
+                var canAccess = await _mentorMenteeService.CanMentorAccessJournalAsync(userId, menteeId);
+                if (!canAccess)
                 {
-                    return Forbid();
+                    return StatusCode(403, new
+                    {
+                        message = "You do not have permission to view this mentee's journals. The mentee must grant you access first.",
+                        accessDenied = true,
+                        requiresPermission = true
+                    });
                 }
             }
 
@@ -149,7 +162,7 @@ namespace Auth.API.Controllers
         }
 
         /// <summary>
-        /// Gets all journals for all mentees of the current mentor
+        /// Gets all journals for all mentees of the current mentor (only includes mentees who granted permission)
         /// </summary>
         [HttpGet("me/all-mentees-journals")]
         public async Task<ActionResult<List<MenteeJournalDto>>> GetAllMyMenteesJournals()
@@ -168,6 +181,7 @@ namespace Auth.API.Controllers
         /// Gets mentor information by ID (Admin only)
         /// </summary>
         [HttpGet("{mentorId}")]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<MentorDto>> GetMentorById(string mentorId)
         {
             var mentor = await _mentorMenteeService.GetMentorByIdAsync(mentorId);
@@ -183,6 +197,7 @@ namespace Auth.API.Controllers
         /// Gets mentor's mentees by mentor ID (Admin only)
         /// </summary>
         [HttpGet("{mentorId}/mentees")]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<List<MenteeDto>>> GetMenteesByMentorId(string mentorId)
         {
             var mentees = await _mentorMenteeService.GetMenteesByMentorIdAsync(mentorId);
@@ -193,6 +208,7 @@ namespace Auth.API.Controllers
         /// Gets mentor with all their mentees by mentor ID (Admin only)
         /// </summary>
         [HttpGet("{mentorId}/with-mentees")]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<MentorWithMenteesDto>> GetMentorWithMenteesById(string mentorId)
         {
             var result = await _mentorMenteeService.GetMentorWithMenteesAsync(mentorId);
@@ -306,5 +322,164 @@ namespace Auth.API.Controllers
 
             return Ok(result);
         }
+
+        // ==================== PERMISSION MANAGEMENT ENDPOINTS ====================
+
+        /// <summary>
+        /// Updates the current mentee's journal access permission for their mentor
+        /// </summary>
+        [HttpPut("me/journal-access")]
+        public async Task<ActionResult> UpdateMyJournalAccess([FromBody] UpdateJournalAccessDto dto)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized();
+            }
+
+            // Verify user is a mentee
+            var isMentee = await _mentorMenteeService.IsMenteeAsync(userId);
+            if (!isMentee)
+            {
+                return BadRequest(new { message = "User is not a mentee" });
+            }
+
+            var success = await _mentorMenteeService.UpdateMentorJournalAccessAsync(userId, dto.AllowAccess);
+
+            if (!success)
+            {
+                return StatusCode(500, new { message = "Failed to update journal access permission" });
+            }
+
+            return Ok(new
+            {
+                message = dto.AllowAccess
+                    ? "Journal access granted to your mentor"
+                    : "Journal access revoked from your mentor",
+                allowAccess = dto.AllowAccess
+            });
+        }
+
+        /// <summary>
+        /// Gets the current user's journal access permission status
+        /// </summary>
+        [HttpGet("me/journal-access")]
+        public async Task<ActionResult<JournalAccessStatusDto>> GetMyJournalAccessStatus()
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized();
+            }
+
+            var hasAccess = await _mentorMenteeService.HasMentorJournalAccessAsync(userId);
+            var mentor = await _mentorMenteeService.GetMentorByMenteeIdAsync(userId);
+
+            return Ok(new JournalAccessStatusDto
+            {
+                AllowMentorJournalAccess = hasAccess,
+                HasMentor = mentor != null,
+                Mentor = mentor
+            });
+        }
+
+        /// <summary>
+        /// Admin endpoint to update any mentee's journal access permission
+        /// </summary>
+        [HttpPut("mentee/{menteeId}/journal-access")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult> UpdateMenteeJournalAccess(
+            string menteeId,
+            [FromBody] UpdateJournalAccessDto dto)
+        {
+            var success = await _mentorMenteeService.UpdateMentorJournalAccessAsync(menteeId, dto.AllowAccess);
+
+            if (!success)
+            {
+                return NotFound(new { message = "Mentee not found or update failed" });
+            }
+
+            return Ok(new
+            {
+                message = dto.AllowAccess
+                    ? "Journal access granted"
+                    : "Journal access revoked",
+                allowAccess = dto.AllowAccess
+            });
+        }
+
+        /// <summary>
+        /// Checks if the current mentor can access a specific mentee's journals
+        /// </summary>
+        [HttpGet("can-access-journal/{menteeId}")]
+        public async Task<ActionResult<CanAccessJournalDto>> CanAccessMenteeJournal(string menteeId)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized();
+            }
+
+            // Admins always have access
+            if (User.IsInRole("Admin"))
+            {
+                return Ok(new CanAccessJournalDto
+                {
+                    CanAccess = true,
+                    IsAdmin = true,
+                    IsMentor = false,
+                    HasPermission = false,
+                    Message = "Admin access granted"
+                });
+            }
+
+            var isMenteeOfMentor = await _mentorMenteeService.IsMenteeOfMentorAsync(menteeId, userId);
+            if (!isMenteeOfMentor)
+            {
+                return Ok(new CanAccessJournalDto
+                {
+                    CanAccess = false,
+                    IsAdmin = false,
+                    IsMentor = false,
+                    HasPermission = false,
+                    Message = "This mentee does not belong to you"
+                });
+            }
+
+            var hasPermission = await _mentorMenteeService.HasMentorJournalAccessAsync(menteeId);
+
+            return Ok(new CanAccessJournalDto
+            {
+                CanAccess = hasPermission,
+                IsAdmin = false,
+                IsMentor = true,
+                HasPermission = hasPermission,
+                Message = hasPermission
+                    ? "Access granted by mentee"
+                    : "Waiting for mentee to grant access"
+            });
+        }
+    }
+
+    // DTOs for the new endpoints
+    public class UpdateJournalAccessDto
+    {
+        public bool AllowAccess { get; set; }
+    }
+
+    public class JournalAccessStatusDto
+    {
+        public bool AllowMentorJournalAccess { get; set; }
+        public bool HasMentor { get; set; }
+        public MentorDto? Mentor { get; set; }
+    }
+
+    public class CanAccessJournalDto
+    {
+        public bool CanAccess { get; set; }
+        public bool IsAdmin { get; set; }
+        public bool IsMentor { get; set; }
+        public bool HasPermission { get; set; }
+        public string Message { get; set; }
     }
 }

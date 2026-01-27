@@ -19,5 +19,6 @@ namespace Auth.Models.Entities
         public DateTime CreatedAt { get; set; }
         public bool IsActive { get; set; }
         public bool MustChangePassword { get; set; }
+        public bool AllowMentorJournalAccess { get; set; } = false;
     }
 }
