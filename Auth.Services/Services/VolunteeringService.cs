@@ -5,6 +5,7 @@ using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Text;
 
 namespace Auth.Services.Services
 {
@@ -12,6 +13,8 @@ namespace Auth.Services.Services
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<VolunteeringService> _logger;
+        private readonly string _spreadsheetId;
+        private readonly string? _googleCredentials;
 
         public VolunteeringService(
             IConfiguration configuration,
@@ -19,6 +22,13 @@ namespace Auth.Services.Services
         {
             _configuration = configuration;
             _logger = logger;
+
+            // Load from environment variables
+            _spreadsheetId = Environment.GetEnvironmentVariable("SPREADSHEET_ID")
+                ?? throw new Exception("SPREADSHEET_ID is not set in .env");
+
+            // Google credentials is optional - can fall back to credentials.json
+            _googleCredentials = Environment.GetEnvironmentVariable("GOOGLE_CREDENTIALS");
         }
 
         public async Task<IEnumerable<VolunteerDto>> GetTopVolunteersAsync()
@@ -74,23 +84,15 @@ namespace Auth.Services.Services
                 var credential = GetGoogleCredential();
                 var service = CreateSheetsService(credential);
 
-                var spreadsheetId = _configuration["SPREADSHEET_ID"];
-
-                if (string.IsNullOrEmpty(spreadsheetId))
-                {
-                    _logger.LogError("SPREADSHEET_ID is not configured");
-                    throw new Exception("Spreadsheet ID is not configured");
-                }
-
                 _logger.LogInformation("Attempting to read team data from spreadsheet: {SpreadsheetId}",
-                    spreadsheetId);
+                    _spreadsheetId);
 
                 // Read from "Long-term Volunteering" sheet, columns A to C
                 var range = "Long-term Volunteering!A2:C";
 
                 _logger.LogInformation("Reading from range: {Range}", range);
 
-                var request = service.Spreadsheets.Values.Get(spreadsheetId, range);
+                var request = service.Spreadsheets.Values.Get(_spreadsheetId, range);
                 var response = await request.ExecuteAsync();
                 var values = response.Values;
 
@@ -130,18 +132,10 @@ namespace Auth.Services.Services
             var credential = GetGoogleCredential();
             var service = CreateSheetsService(credential);
 
-            var spreadsheetId = _configuration["SPREADSHEET_ID"];
-
-            if (string.IsNullOrEmpty(spreadsheetId))
-            {
-                _logger.LogError("SPREADSHEET_ID is not configured");
-                throw new Exception("Spreadsheet ID is not configured");
-            }
-
-            _logger.LogInformation("Attempting to read from spreadsheet: {SpreadsheetId}", spreadsheetId);
+            _logger.LogInformation("Attempting to read from spreadsheet: {SpreadsheetId}", _spreadsheetId);
 
             // Get spreadsheet metadata to find sheet names
-            var metadataRequest = service.Spreadsheets.Get(spreadsheetId);
+            var metadataRequest = service.Spreadsheets.Get(_spreadsheetId);
             var metadata = await metadataRequest.ExecuteAsync();
 
             // Use the FIRST sheet's actual name
@@ -151,7 +145,7 @@ namespace Auth.Services.Services
             _logger.LogInformation("Reading from sheet: '{SheetName}', Range: {Range}",
                 firstSheetName, range);
 
-            var request = service.Spreadsheets.Values.Get(spreadsheetId, range);
+            var request = service.Spreadsheets.Values.Get(_spreadsheetId, range);
             var response = await request.ExecuteAsync();
             var values = response.Values;
 
@@ -168,31 +162,51 @@ namespace Auth.Services.Services
 
         private GoogleCredential GetGoogleCredential()
         {
-            var credentialsJson = _configuration["GOOGLE_CREDENTIALS"];
-
-            if (!string.IsNullOrEmpty(credentialsJson))
+            // PRIORITY 1: Try to load from environment variable (PRODUCTION)
+            if (!string.IsNullOrEmpty(_googleCredentials))
             {
-                _logger.LogInformation("Loading credentials from environment variable");
-                var credentialBytes = System.Text.Encoding.UTF8.GetBytes(credentialsJson);
-                using var stream = new MemoryStream(credentialBytes);
-                return GoogleCredential.FromStream(stream)
-                    .CreateScoped(SheetsService.Scope.SpreadsheetsReadonly);
-            }
-            else
-            {
-                var credentialPath = Path.Combine(Directory.GetCurrentDirectory(), "credentials.json");
+                _logger.LogInformation("Loading Google credentials from environment variable");
 
-                _logger.LogInformation("Loading credentials from file: {Path}", credentialPath);
-
-                if (!File.Exists(credentialPath))
+                try
                 {
-                    _logger.LogError("Credentials file not found at: {Path}", credentialPath);
-                    throw new FileNotFoundException("Google credentials file not found", credentialPath);
+                    var credentialBytes = Encoding.UTF8.GetBytes(_googleCredentials);
+                    using var stream = new MemoryStream(credentialBytes);
+                    return GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.SpreadsheetsReadonly);
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load credentials from environment variable");
+                    throw new Exception("Invalid Google credentials format in GOOGLE_CREDENTIALS environment variable", ex);
+                }
+            }
 
+            // PRIORITY 2: Fall back to credentials.json file (DEVELOPMENT)
+            _logger.LogInformation("GOOGLE_CREDENTIALS environment variable not set, falling back to credentials.json");
+
+            var credentialPath = Path.Combine(Directory.GetCurrentDirectory(), "credentials.json");
+
+            if (!File.Exists(credentialPath))
+            {
+                _logger.LogError("Credentials file not found at: {Path} and GOOGLE_CREDENTIALS is not set",
+                    credentialPath);
+                throw new FileNotFoundException(
+                    "GOOGLE_CREDENTIALS is not set in .env and credentials.json file not found",
+                    credentialPath);
+            }
+
+            _logger.LogInformation("Loading credentials from file: {Path}", credentialPath);
+
+            try
+            {
                 using var stream = new FileStream(credentialPath, FileMode.Open, FileAccess.Read);
                 return GoogleCredential.FromStream(stream)
                     .CreateScoped(SheetsService.Scope.SpreadsheetsReadonly);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load credentials from file: {Path}", credentialPath);
+                throw new Exception($"Failed to load Google credentials from {credentialPath}", ex);
             }
         }
 
