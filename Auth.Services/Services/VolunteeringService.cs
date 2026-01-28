@@ -6,6 +6,7 @@ using Google.Apis.Sheets.v4;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Text;
+using System.Text.Json;
 
 namespace Auth.Services.Services
 {
@@ -169,15 +170,86 @@ namespace Auth.Services.Services
 
                 try
                 {
-                    var credentialBytes = Encoding.UTF8.GetBytes(_googleCredentials);
+                    // Validate it looks like JSON
+                    if (!_googleCredentials.TrimStart().StartsWith("{"))
+                    {
+                        _logger.LogError("GOOGLE_CREDENTIALS doesn't start with '{{'. First 50 chars: {Preview}",
+                            _googleCredentials.Substring(0, Math.Min(50, _googleCredentials.Length)));
+                        throw new Exception("GOOGLE_CREDENTIALS doesn't appear to be valid JSON");
+                    }
+
+                    _logger.LogInformation("Credentials length: {Length} characters", _googleCredentials.Length);
+
+                    // Check if it contains escaped newlines
+                    if (_googleCredentials.Contains("\\n"))
+                    {
+                        _logger.LogInformation("Detected escaped newlines in credentials, processing...");
+                    }
+
+                    // Process the credentials string to handle escaped characters
+                    string processedCredentials = ProcessCredentialString(_googleCredentials);
+
+                    // Validate it's parseable JSON before sending to Google
+                    try
+                    {
+                        using var jsonDoc = JsonDocument.Parse(processedCredentials);
+                        var root = jsonDoc.RootElement;
+
+                        // Validate required fields
+                        if (!root.TryGetProperty("type", out _))
+                        {
+                            throw new Exception("Missing 'type' field in credentials");
+                        }
+                        if (!root.TryGetProperty("private_key", out var privateKey))
+                        {
+                            throw new Exception("Missing 'private_key' field in credentials");
+                        }
+                        if (!root.TryGetProperty("client_email", out _))
+                        {
+                            throw new Exception("Missing 'client_email' field in credentials");
+                        }
+
+                        // Check if private_key has actual newlines (not escaped)
+                        var pkValue = privateKey.GetString();
+                        if (pkValue != null && pkValue.Contains("\\n"))
+                        {
+                            _logger.LogWarning("Private key still contains escaped \\n - this may cause issues");
+                        }
+
+                        _logger.LogInformation("Credentials JSON is valid and contains required fields");
+                    }
+                    catch (JsonException jsonEx)
+                    {
+                        _logger.LogError(jsonEx, "Credentials are not valid JSON");
+                        _logger.LogError("First 200 chars of processed credentials: {Preview}",
+                            processedCredentials.Substring(0, Math.Min(200, processedCredentials.Length)));
+                        throw new Exception("GOOGLE_CREDENTIALS is not valid JSON", jsonEx);
+                    }
+
+                    // Convert to bytes and create stream
+                    var credentialBytes = Encoding.UTF8.GetBytes(processedCredentials);
                     using var stream = new MemoryStream(credentialBytes);
-                    return GoogleCredential.FromStream(stream)
+
+                    _logger.LogInformation("Attempting to create GoogleCredential from processed credentials");
+
+                    var credential = GoogleCredential.FromStream(stream)
                         .CreateScoped(SheetsService.Scope.SpreadsheetsReadonly);
+
+                    _logger.LogInformation("Successfully loaded Google credentials from environment variable");
+                    return credential;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to load credentials from environment variable");
-                    throw new Exception("Invalid Google credentials format in GOOGLE_CREDENTIALS environment variable", ex);
+                    _logger.LogError(ex, "Failed to load credentials from environment variable. Error: {ErrorMessage}", ex.Message);
+
+                    // Log inner exception details
+                    if (ex.InnerException != null)
+                    {
+                        _logger.LogError("Inner exception: {InnerMessage}", ex.InnerException.Message);
+                    }
+
+                    throw new Exception("Invalid Google credentials format in GOOGLE_CREDENTIALS environment variable. " +
+                        "Ensure the JSON is properly formatted with actual newlines in the private_key field.", ex);
                 }
             }
 
@@ -200,14 +272,42 @@ namespace Auth.Services.Services
             try
             {
                 using var stream = new FileStream(credentialPath, FileMode.Open, FileAccess.Read);
-                return GoogleCredential.FromStream(stream)
+                var credential = GoogleCredential.FromStream(stream)
                     .CreateScoped(SheetsService.Scope.SpreadsheetsReadonly);
+
+                _logger.LogInformation("Successfully loaded credentials from file");
+                return credential;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to load credentials from file: {Path}", credentialPath);
                 throw new Exception($"Failed to load Google credentials from {credentialPath}", ex);
             }
+        }
+
+        /// <summary>
+        /// Process credential string to handle escaped newlines and other escape sequences
+        /// </summary>
+        private string ProcessCredentialString(string credentials)
+        {
+            // The credentials string from .env might have literal \n instead of actual newlines
+            // We need to replace these with actual newlines
+
+            // First, let's check if we're dealing with escaped sequences
+            // If the string contains \\n (literal backslash-n), replace with actual newline
+            string processed = credentials;
+
+            // Replace escaped newlines with actual newlines
+            // This handles the case where .env has: "-----BEGIN PRIVATE KEY-----\nkey\n-----END"
+            processed = processed.Replace("\\n", "\n");
+
+            // Also handle other common escape sequences that might be in the JSON
+            processed = processed.Replace("\\r", "\r");
+            processed = processed.Replace("\\t", "\t");
+            processed = processed.Replace("\\\"", "\"");
+            processed = processed.Replace("\\\\", "\\");
+
+            return processed;
         }
 
         private SheetsService CreateSheetsService(GoogleCredential credential)
