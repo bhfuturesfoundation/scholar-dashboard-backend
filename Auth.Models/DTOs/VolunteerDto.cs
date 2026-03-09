@@ -11,11 +11,11 @@ namespace Auth.Models.DTOs
         public string Name { get; set; } = string.Empty;
         public string Surname { get; set; } = string.Empty;
         public string MemberStatus { get; set; } = string.Empty;
-        public int ShortTermHours { get; set; }
-        public int LongTermHours { get; set; }
-        public int OutsideBHFFHours { get; set; }
-        public int WithinBHFFHours { get; set; }
-        public int TotalVolunteeringHours { get; set; }
+        public decimal ShortTermHours { get; set; }     
+        public decimal LongTermHours { get; set; }       
+        public decimal OutsideBHFFHours { get; set; }    
+        public decimal WithinBHFFHours { get; set; }     
+        public decimal TotalVolunteeringHours { get; set; } 
     }
 
     public class VolunteerWithTeamDto

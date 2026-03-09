@@ -276,11 +276,11 @@ namespace Auth.Services.Services
                 var lastName = nameParts.Length > 1 ? string.Join(" ", nameParts.Skip(1)) : string.Empty;
 
                 var memberStatus = row[2]?.ToString()?.Trim() ?? string.Empty;
-                var shortTermHours = ParseInt(row[3]?.ToString());
-                var longTermHours = ParseInt(row[4]?.ToString());
-                var outsideHours = ParseInt(row[5]?.ToString());
-                var withinHours = ParseInt(row[6]?.ToString());
-                var totalHours = ParseInt(row[7]?.ToString());
+                var shortTermHours = ParseDecimal(row[3]?.ToString());
+                var longTermHours = ParseDecimal(row[4]?.ToString());
+                var outsideHours = ParseDecimal(row[5]?.ToString());
+                var withinHours = ParseDecimal(row[6]?.ToString());
+                var totalHours = ParseDecimal(row[7]?.ToString());
 
                 volunteers.Add(new VolunteerDto
                 {
@@ -351,18 +351,21 @@ namespace Auth.Services.Services
             return volunteersWithTeams;
         }
 
-        private int ParseInt(string? value)
+        private decimal ParseDecimal(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
-                return 0;
+                return 0m;
 
             value = value.Trim();
 
-            if (int.TryParse(value, out int result))
+            if (decimal.TryParse(value, System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture, out decimal result))
+            {
                 return result;
+            }
 
-            _logger.LogWarning("Failed to parse integer value: '{Value}', defaulting to 0", value);
-            return 0;
+            _logger.LogWarning("Failed to parse decimal value: '{Value}', defaulting to 0", value);
+            return 0m;
         }
     }
 }
