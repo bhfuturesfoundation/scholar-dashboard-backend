@@ -1,4 +1,4 @@
-﻿using Auth.API.Helpers;
+using Auth.API.Helpers;
 using Auth.Models.Exceptions;
 using Auth.Models.Request;
 using Auth.Models.Response;
@@ -62,7 +62,7 @@ public class AuthController : ControllerBase
         if (!string.IsNullOrEmpty(loginResult.RefreshToken))
             CookieHelper.SetRefreshTokenCookie(HttpContext, loginResult.RefreshToken);
 
-        // Keep RefreshToken null in response so client doesn’t accidentally expose it
+        // Keep RefreshToken null in response so client doesn�t accidentally expose it
         loginResult.RefreshToken = null;
 
         return Ok(ApiResponse<RegisterResponse>.SuccessResponse(
@@ -198,7 +198,7 @@ public class AuthController : ControllerBase
         var refreshToken = Request.Cookies["refresh_token"];
         var result = await _authService.LogoutAsync(GetUserId(), refreshToken);
 
-        Response.Cookies.Delete("refresh_token");
+        CookieHelper.DeleteRefreshTokenCookie(HttpContext);
 
         return Ok(ApiResponse<bool>.SuccessResponse(result, "Logout successful"));
     }
@@ -250,7 +250,7 @@ public class AuthController : ControllerBase
 
             _logger.LogInformation("User {UserId} changed their password successfully", userId);
 
-            // ✅ return success (frontend will log them out)
+            // ? return success (frontend will log them out)
             return Ok(ApiResponse<bool>.SuccessResponse(true, "Password changed successfully."));
         }
         catch (Exception ex)
@@ -327,3 +327,4 @@ public class AuthController : ControllerBase
         }
     }
 }
+
