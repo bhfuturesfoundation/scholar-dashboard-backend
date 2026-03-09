@@ -1,4 +1,4 @@
-﻿using Auth.Models.Data;
+using Auth.Models.Data;
 using Auth.Models.Entities;
 using Auth.Models.Exceptions;
 using Auth.Models.Response;
@@ -54,7 +54,12 @@ namespace Auth.Services.Services
 
             _logger.LogInformation($"Generating JWT token for user {user.Id} with {claims.Count()} claims", user.Id, claims.Count());
 
-            var secret = Env.GetString("JWT_SECRET");
+            var secret = _jwtSettings.Secret;
+            if (string.IsNullOrWhiteSpace(secret))
+            {
+                secret = Env.GetString("JWT_SECRET");
+            }
+
             var symmetricSecurityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
             var signingCredentials = new SigningCredentials(symmetricSecurityKey, SecurityAlgorithms.HmacSha256);
 
@@ -326,3 +331,4 @@ namespace Auth.Services.Services
         }
     }
 }
+
