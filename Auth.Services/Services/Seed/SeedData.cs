@@ -18,7 +18,7 @@ namespace Auth.API.Seed
              "https://www.dropbox.com/scl/fi/5iiszsu9hn3inirp5tqhc/users.csv?rlkey=lzegatdz0wlqa5gbodffmmuhi&st=id3qung4&dl=1";
         private const string DropboxMentorsCsvUrl =
              "https://www.dropbox.com/scl/fi/ixzp98v8nn0siqf3uivpq/Mentors_for_IPJ.csv?rlkey=sht5r8416h0j6mgkdzinep8hz&st=90yshjpo&dl=1";
-        private const string DropboxMentorsNewCsvUrl = "https://www.dropbox.com/scl/fi/nj8gcor3gx2y3smwuaflf/mentors-new.csv?rlkey=2zcpb1lhwwq0mmn5wopiphr7n&st=ux0fl823&dl=0";
+        private const string DropboxMentorsNewCsvUrl = "https://www.dropbox.com/scl/fi/nj8gcor3gx2y3smwuaflf/mentors-new.csv?rlkey=2zcpb1lhwwq0mmn5wopiphr7n&st=ux0fl823&dl=1";
 
         public static async Task SeedUsersAsync(IServiceProvider serviceProvider)
         {
