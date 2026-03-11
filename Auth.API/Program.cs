@@ -1,5 +1,6 @@
-﻿using Auth.API.Extensions;
+using Auth.API.Extensions;
 using Auth.API.Middleware;
+using Auth.API.Hubs;
 using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
@@ -7,10 +8,11 @@ using Auth.Services.Services;
 using DotNetEnv;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ✅ Load local .env if exists (only for dev)
+// ? Load local .env if exists (only for dev)
 Env.TraversePath().Load();
 
 // === Add services ===
@@ -55,6 +57,8 @@ builder.Services.AddDistributedMemoryCache();
 builder.Services.AddMapster();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IUserIdProvider, SubClaimUserIdProvider>();
 builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.ConfigureApplicationCookie(options =>
@@ -85,6 +89,8 @@ app.UseCors("AllowSpecificOrigin");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapHub<MinigamesHub>("/hubs/minigames");
+app.MapHub<MinigamesHub>("/api/hubs/minigames");
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())
@@ -101,7 +107,7 @@ using (var scope = app.Services.CreateScope())
 
     if (!hasTables)
     {
-        // DB empty → create schema
+        // DB empty ? create schema
         await db.Database.EnsureCreatedAsync();
         Console.WriteLine("Database was empty. Created new schema.");
     }
@@ -119,10 +125,16 @@ using (var scope = app.Services.CreateScope())
     await conn.CloseAsync();
 }
 
-// ✅ Seed data after migrations
+
+// ? Seed data after migrations
 await SeedData.SeedRolesAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedQuestionsAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedUsersAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedMentorsAsync(app.Services.CreateScope().ServiceProvider);
 
 app.Run();
+
+
+
+
+
