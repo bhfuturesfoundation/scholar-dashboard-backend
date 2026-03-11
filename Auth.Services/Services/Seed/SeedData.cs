@@ -150,6 +150,8 @@ namespace Auth.API.Seed
 
             logger.LogInformation("Starting mentor seeding...");
 
+            var records = new List<MentorCsvRecord>();
+
             logger.LogInformation("Downloading mentors CSV from Dropbox: {Url}", DropboxMentorsCsvUrl);
 
             using var http = new HttpClient();
@@ -158,40 +160,22 @@ namespace Auth.API.Seed
             var csvBytes = await http.GetByteArrayAsync(DropboxMentorsCsvUrl);
             logger.LogInformation("Downloaded {Size} bytes from Dropbox", csvBytes.Length);
 
-            using var memoryStream = new MemoryStream(csvBytes);
-            using var reader = new StreamReader(memoryStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            using var dropboxStream = new MemoryStream(csvBytes);
+            records.AddRange(ReadMentorCsv(dropboxStream, logger, "Dropbox"));
 
-            // Log the first few lines for debugging
-            var firstLine = await reader.ReadLineAsync();
-            logger.LogInformation("CSV Header: {Header}", firstLine);
-            memoryStream.Position = 0; // Reset stream
-
-            using var reader2 = new StreamReader(memoryStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-            using var csv = new CsvReader(reader2, new CsvConfiguration(CultureInfo.InvariantCulture)
+            var localMentorsPath = Path.Combine(Directory.GetCurrentDirectory(), "SeedInputs", "mentors-new.csv");
+            if (File.Exists(localMentorsPath))
             {
-                HeaderValidated = null,
-                MissingFieldFound = null,
-                BadDataFound = null,
-                TrimOptions = CsvHelper.Configuration.TrimOptions.Trim,
-                Encoding = Encoding.UTF8,
-                DetectDelimiter = true,
-                PrepareHeaderForMatch = args => args.Header.Trim()
-            });
-
-            var records = csv.GetRecords<MentorCsvRecord>().ToList();
-
-            logger.LogInformation("Successfully parsed {Count} records from CSV", records.Count);
-
-            // Log first record for debugging
-            if (records.Any())
-            {
-                var first = records.First();
-                logger.LogInformation("Sample record - Mentor: '{MentorName}' ({MentorEmail}), Scholar: '{ScholarName}' ({ScholarEmail})",
-                    first.MentorName ?? "NULL",
-                    first.MentorEmail ?? "NULL",
-                    first.Scholar ?? "NULL",
-                    first.ScholarEmail ?? "NULL");
+                logger.LogInformation("Loading local mentors CSV from {Path}", localMentorsPath);
+                using var localStream = File.OpenRead(localMentorsPath);
+                records.AddRange(ReadMentorCsv(localStream, logger, "Local mentors-new.csv"));
             }
+            else
+            {
+                logger.LogInformation("Local mentors CSV not found at {Path}. Skipping.", localMentorsPath);
+            }
+
+            logger.LogInformation("Total mentor records loaded: {Count}", records.Count);
 
             int createdMentorsCount = 0;
             int skippedMentorsCount = 0;
@@ -349,6 +333,48 @@ namespace Auth.API.Seed
                 "Mentor seeding finished. Created mentors: {CreatedMentors}, Skipped mentors: {SkippedMentors}, " +
                 "Assigned mentees: {AssignedMentees}, Failed assignments: {FailedAssignments}",
                 createdMentorsCount, skippedMentorsCount, assignedMenteesCount, failedAssignmentsCount);
+        }
+
+        private static List<MentorCsvRecord> ReadMentorCsv(Stream stream, ILogger logger, string sourceLabel)
+        {
+            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+            var header = reader.ReadLine();
+            if (!string.IsNullOrWhiteSpace(header))
+            {
+                logger.LogInformation("{Source} CSV Header: {Header}", sourceLabel, header);
+            }
+
+            if (stream.CanSeek)
+            {
+                stream.Position = 0;
+            }
+
+            using var reader2 = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+            using var csv = new CsvReader(reader2, new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                HeaderValidated = null,
+                MissingFieldFound = null,
+                BadDataFound = null,
+                TrimOptions = CsvHelper.Configuration.TrimOptions.Trim,
+                Encoding = Encoding.UTF8,
+                DetectDelimiter = true,
+                PrepareHeaderForMatch = args => args.Header.Trim()
+            });
+
+            var records = csv.GetRecords<MentorCsvRecord>().ToList();
+            logger.LogInformation("{Source} CSV parsed {Count} records", sourceLabel, records.Count);
+
+            if (records.Any())
+            {
+                var first = records.First();
+                logger.LogInformation("Sample record - Mentor: '{MentorName}' ({MentorEmail}), Scholar: '{ScholarName}' ({ScholarEmail})",
+                    first.MentorName ?? "NULL",
+                    first.MentorEmail ?? "NULL",
+                    first.Scholar ?? "NULL",
+                    first.ScholarEmail ?? "NULL");
+            }
+
+            return records;
         }
 
         public static async Task SeedRolesAsync(IServiceProvider serviceProvider)

@@ -1,4 +1,4 @@
-﻿using Auth.API.Helpers;
+using Auth.API.Helpers;
 using Auth.Models.Data;
 using Auth.Models.Entities;
 using Auth.Models.Exceptions;
@@ -158,7 +158,7 @@ namespace Auth.API.Extensions
                             return;
                         }
 
-                        // Only throw if we didn’t refresh
+                        // Only throw if we didn�t refresh
                         context.HandleResponse();
                         var logger = httpContext.RequestServices.GetRequiredService<ILogger<JwtBearerEvents>>();
                         logger.LogWarning("Unauthorized access. Token may be invalid or expired.");
@@ -177,6 +177,16 @@ namespace Auth.API.Extensions
 
                     OnMessageReceived = context =>
                     {
+                        var accessToken = context.Request.Query["access_token"];
+                        var path = context.HttpContext.Request.Path;
+
+                        if (!string.IsNullOrEmpty(accessToken) &&
+                            (path.StartsWithSegments("/hubs/minigames") || path.StartsWithSegments("/api/hubs/minigames")))
+                        {
+                            context.Token = accessToken;
+                            return Task.CompletedTask;
+                        }
+
                         var token = context.Request.Headers["Authorization"].FirstOrDefault();
                         if (!string.IsNullOrEmpty(token))
                         {
@@ -189,6 +199,7 @@ namespace Auth.API.Extensions
                                 context.Token = token;
                             }
                         }
+
                         return Task.CompletedTask;
                     }
                 };
