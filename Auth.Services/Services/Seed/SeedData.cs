@@ -18,6 +18,7 @@ namespace Auth.API.Seed
              "https://www.dropbox.com/scl/fi/5iiszsu9hn3inirp5tqhc/users.csv?rlkey=lzegatdz0wlqa5gbodffmmuhi&st=id3qung4&dl=1";
         private const string DropboxMentorsCsvUrl =
              "https://www.dropbox.com/scl/fi/ixzp98v8nn0siqf3uivpq/Mentors_for_IPJ.csv?rlkey=sht5r8416h0j6mgkdzinep8hz&st=90yshjpo&dl=1";
+        private const string DropboxMentorsNewCsvUrl = "https://www.dropbox.com/scl/fi/nj8gcor3gx2y3smwuaflf/mentors-new.csv?rlkey=2zcpb1lhwwq0mmn5wopiphr7n&st=ux0fl823&dl=0";
 
         public static async Task SeedUsersAsync(IServiceProvider serviceProvider)
         {
@@ -163,16 +164,18 @@ namespace Auth.API.Seed
             using var dropboxStream = new MemoryStream(csvBytes);
             records.AddRange(ReadMentorCsv(dropboxStream, logger, "Dropbox"));
 
-            var localMentorsPath = Path.Combine(Directory.GetCurrentDirectory(), "SeedInputs", "mentors-new.csv");
-            if (File.Exists(localMentorsPath))
+            if (!string.IsNullOrWhiteSpace(DropboxMentorsNewCsvUrl))
             {
-                logger.LogInformation("Loading local mentors CSV from {Path}", localMentorsPath);
-                using var localStream = File.OpenRead(localMentorsPath);
-                records.AddRange(ReadMentorCsv(localStream, logger, "Local mentors-new.csv"));
+                logger.LogInformation("Downloading additional mentors CSV from Dropbox: {Url}", DropboxMentorsNewCsvUrl);
+                var newCsvBytes = await http.GetByteArrayAsync(DropboxMentorsNewCsvUrl);
+                logger.LogInformation("Downloaded {Size} bytes from additional Dropbox CSV", newCsvBytes.Length);
+
+                using var newStream = new MemoryStream(newCsvBytes);
+                records.AddRange(ReadMentorCsv(newStream, logger, "Dropbox mentors-new.csv"));
             }
             else
             {
-                logger.LogInformation("Local mentors CSV not found at {Path}. Skipping.", localMentorsPath);
+                logger.LogInformation("No additional mentors CSV configured. Skipping.");
             }
 
             logger.LogInformation("Total mentor records loaded: {Count}", records.Count);
