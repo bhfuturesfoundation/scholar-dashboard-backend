@@ -9,6 +9,7 @@ namespace Auth.Services.Interfaces
     {
         Task<string> GetUserTitleAsync(string userId);
         Task<CurrentUserResponse> GetCurrentUserAsync(string userId);
+        Task<List<MemberSearchResponse>> SearchMembersAsync(string query, int limit, string? excludeUserId = null);
         Task<User> CreateUserAsync(RegisterRequest request);
         Task<(bool Succeeded, User User, bool RequiresTwoFactor, bool EmailNotConfirmed)> VerifyCredentialsAsync(string email, string password);
         Task<string> GenerateEmailConfirmationTokenAsync(string userId);

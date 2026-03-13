@@ -178,6 +178,7 @@ namespace Auth.API.Hubs
             }
         }
 
+
         // New invite-based multiplayer flow (no manual room sharing).
         public async Task SendDuelInviteByEmail(string targetEmail, string senderDisplayName, string gameId = "signal-smash-duel")
         {
@@ -201,6 +202,35 @@ namespace Auth.API.Hubs
                 throw new HubException("Target user not found.");
             }
 
+            await SendDuelInviteToUserInternal(targetUser, senderUserId, senderDisplayName, gameId);
+        }
+
+        public async Task SendDuelInviteToUser(string targetUserId, string senderDisplayName, string gameId = "signal-smash-duel")
+        {
+            CleanupState();
+
+            var senderUserId = GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(senderUserId))
+            {
+                throw new HubException("Authentication required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(targetUserId))
+            {
+                throw new HubException("Target user is required.");
+            }
+
+            var targetUser = await _userManager.FindByIdAsync(targetUserId.Trim());
+            if (targetUser == null)
+            {
+                throw new HubException("Target user not found.");
+            }
+
+            await SendDuelInviteToUserInternal(targetUser, senderUserId, senderDisplayName, gameId);
+        }
+
+        private async Task SendDuelInviteToUserInternal(User targetUser, string senderUserId, string senderDisplayName, string gameId)
+        {
             if (targetUser.Id == senderUserId)
             {
                 throw new HubException("You cannot invite yourself.");
@@ -209,6 +239,7 @@ namespace Auth.API.Hubs
             var safeGameId = NormalizeGameId(gameId);
             var inviteId = Guid.NewGuid().ToString("N");
             var fromDisplay = string.IsNullOrWhiteSpace(senderDisplayName) ? "Scholar" : senderDisplayName.Trim();
+            var targetDisplay = BuildDisplayName(targetUser);
             var invite = new DuelInvite(inviteId, senderUserId, targetUser.Id, fromDisplay, DateTimeOffset.UtcNow, safeGameId);
 
             Invites[inviteId] = invite;
@@ -222,8 +253,21 @@ namespace Auth.API.Hubs
 
             await _hubContext.Clients.User(senderUserId).SendAsync(
                 "MinigameInviteStatus",
-                new InviteStatusPayload(inviteId, "pending", null, targetUser.Email, invite.GameId)
+                new InviteStatusPayload(inviteId, "pending", null, targetDisplay, invite.GameId)
             );
+        }
+
+        private static string BuildDisplayName(User user)
+        {
+            var first = user.FirstName ?? string.Empty;
+            var last = user.LastName ?? string.Empty;
+            var full = $"{first} {last}".Trim();
+            if (!string.IsNullOrWhiteSpace(full))
+            {
+                return full;
+            }
+
+            return string.IsNullOrWhiteSpace(user.Email) ? "Scholar" : user.Email;
         }
 
         public async Task<InviteResponsePayload> RespondToDuelInvite(string inviteId, bool accept, string receiverDisplayName)
@@ -358,6 +402,43 @@ namespace Auth.API.Hubs
             }
         }
 
+
+        public async Task JoinDuelSessionAsViewer(string sessionId)
+        {
+            var normalized = NormalizeCode(sessionId);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                throw new HubException("Session id is required.");
+            }
+
+            if (!DuelSessions.TryGetValue(normalized, out var duel))
+            {
+                throw new HubException("Duel session was not found.");
+            }
+
+            if (Context.Items.TryGetValue("duel", out var existing) && existing is string existingSession)
+            {
+                if (!string.Equals(existingSession, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    await LeaveDuelSession(existingSession);
+                }
+            }
+
+            Context.Items["duel"] = normalized;
+            await Groups.AddToGroupAsync(Context.ConnectionId, normalized);
+            await Clients.Caller.SendAsync("DuelSessionUpdate", duel.ToSnapshot());
+
+            if (duel.GameId == "chess-arena-duel" && ChessStates.TryGetValue(normalized, out var chessState))
+            {
+                await Clients.Caller.SendAsync("ChessStateUpdate", chessState.ToPayload());
+            }
+
+            if (duel.GameId == "connect-four-arena-duel" && ConnectFourStates.TryGetValue(normalized, out var connectFourState))
+            {
+                await Clients.Caller.SendAsync("ConnectFourStateUpdate", connectFourState.ToPayload());
+            }
+        }
+
         public async Task LeaveDuelSession(string sessionId)
         {
             var normalized = NormalizeCode(sessionId);
@@ -382,6 +463,28 @@ namespace Auth.API.Hubs
 
             Context.Items.Remove("duel");
             CleanupState();
+        }
+
+
+        public async Task<List<DuelSessionSnapshot>> GetActiveDuelSessions()
+        {
+            CleanupState();
+            var snapshots = DuelSessions.Values
+                .OrderByDescending(entry => entry.LastActiveAt)
+                .Select(entry => entry.ToSnapshot())
+                .ToList();
+
+            return await Task.FromResult(snapshots);
+        }
+
+        public async Task SubscribeToActiveDuelUpdates()
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, "active-duels");
+        }
+
+        public async Task UnsubscribeFromActiveDuelUpdates()
+        {
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, "active-duels");
         }
 
         public async Task StartDuelSession(string sessionId)
@@ -857,6 +960,7 @@ namespace Auth.API.Hubs
 
             duel.LastBroadcastAt = now;
             await _hubContext.Clients.Group(sessionId).SendAsync("DuelSessionUpdate", duel.ToSnapshot());
+            await _hubContext.Clients.Group("active-duels").SendAsync("ActiveDuelUpdate", duel.ToSnapshot());
             CleanupState();
         }
 

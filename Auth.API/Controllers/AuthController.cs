@@ -183,6 +183,14 @@ public class AuthController : ControllerBase
     }
 
     [Authorize]
+    [HttpGet("members/search")]
+    public async Task<ActionResult<ApiResponse<List<MemberSearchResponse>>>> SearchMembers([FromQuery] string query, [FromQuery] int limit = 8)
+    {
+        var results = await _userService.SearchMembersAsync(query, limit, GetUserId());
+        return Ok(ApiResponse<List<MemberSearchResponse>>.SuccessResponse(results, "Members search results"));
+    }
+
+    [Authorize]
     [EnableRateLimiting("email-only")]
     [HttpPost("setup-2fa")]
     public async Task<ActionResult<ApiResponse<bool>>> SetupTwoFactor()

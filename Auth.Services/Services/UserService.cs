@@ -5,6 +5,7 @@ using Auth.Models.Response;
 using Auth.Services.Interfaces;
 using MapsterMapper;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace Auth.Services.Services
@@ -91,6 +92,52 @@ namespace Auth.Services.Services
             currentUserResponse.EmailConfirmed = user.EmailConfirmed;
 
             return currentUserResponse;
+        }
+
+        public async Task<List<MemberSearchResponse>> SearchMembersAsync(string query, int limit, string? excludeUserId = null)
+        {
+            var safeQuery = query?.Trim() ?? string.Empty;
+            if (safeQuery.Length < 2)
+            {
+                return new List<MemberSearchResponse>();
+            }
+
+            var lowered = safeQuery.ToLowerInvariant();
+            var max = Math.Clamp(limit, 1, 20);
+
+            var users = await _userManager.Users
+                .AsNoTracking()
+                .Where(user => user.IsActive)
+                .Where(user =>
+                    (user.FirstName ?? string.Empty).ToLower().Contains(lowered)
+                    || (user.LastName ?? string.Empty).ToLower().Contains(lowered)
+                    || (user.Email ?? string.Empty).ToLower().Contains(lowered))
+                .Where(user => excludeUserId == null || user.Id != excludeUserId)
+                .OrderBy(user => user.FirstName)
+                .ThenBy(user => user.LastName)
+                .Take(max)
+                .ToListAsync();
+
+            var results = new List<MemberSearchResponse>(users.Count);
+            foreach (var user in users)
+            {
+                var displayName = string.Join(" ", new[] { user.FirstName, user.LastName }.Where(value => !string.IsNullOrWhiteSpace(value)));
+                if (string.IsNullOrWhiteSpace(displayName))
+                {
+                    displayName = string.IsNullOrWhiteSpace(user.Email) ? "Scholar" : user.Email;
+                }
+
+                results.Add(new MemberSearchResponse
+                {
+                    Id = user.Id,
+                    FirstName = user.FirstName ?? string.Empty,
+                    LastName = user.LastName ?? string.Empty,
+                    DisplayName = displayName,
+                    Email = user.Email ?? string.Empty
+                });
+            }
+
+            return results;
         }
         public async Task<string> GetUserTitleAsync(string userId)
         {
