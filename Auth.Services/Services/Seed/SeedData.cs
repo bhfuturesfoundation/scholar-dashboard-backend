@@ -166,12 +166,19 @@ namespace Auth.API.Seed
 
             if (!string.IsNullOrWhiteSpace(DropboxMentorsNewCsvUrl))
             {
-                logger.LogInformation("Downloading additional mentors CSV from Dropbox: {Url}", DropboxMentorsNewCsvUrl);
-                var newCsvBytes = await http.GetByteArrayAsync(DropboxMentorsNewCsvUrl);
-                logger.LogInformation("Downloaded {Size} bytes from additional Dropbox CSV", newCsvBytes.Length);
+                try
+                {
+                    logger.LogInformation("Downloading additional mentors CSV from Dropbox: {Url}", DropboxMentorsNewCsvUrl);
+                    var newCsvBytes = await http.GetByteArrayAsync(DropboxMentorsNewCsvUrl);
+                    logger.LogInformation("Downloaded {Size} bytes from additional Dropbox CSV", newCsvBytes.Length);
 
-                using var newStream = new MemoryStream(newCsvBytes);
-                records.AddRange(ReadMentorCsv(newStream, logger, "Dropbox mentors-new.csv"));
+                    using var newStream = new MemoryStream(newCsvBytes);
+                    records.AddRange(ReadMentorCsv(newStream, logger, "Dropbox mentors-new.csv"));
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to load additional mentors CSV from Dropbox. Skipping this source.");
+                }
             }
             else
             {
@@ -338,6 +345,14 @@ namespace Auth.API.Seed
                 createdMentorsCount, skippedMentorsCount, assignedMenteesCount, failedAssignmentsCount);
         }
 
+        private static bool LooksLikeHtmlHeader(string header)
+        {
+            if (string.IsNullOrWhiteSpace(header)) return false;
+            var trimmed = header.TrimStart();
+            return trimmed.StartsWith("<!DOCTYPE html>", StringComparison.OrdinalIgnoreCase)
+                || trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static List<MentorCsvRecord> ReadMentorCsv(Stream stream, ILogger logger, string sourceLabel)
         {
             using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
@@ -345,6 +360,11 @@ namespace Auth.API.Seed
             if (!string.IsNullOrWhiteSpace(header))
             {
                 logger.LogInformation("{Source} CSV Header: {Header}", sourceLabel, header);
+            }
+
+            if (LooksLikeHtmlHeader(header ?? string.Empty))
+            {
+                throw new InvalidOperationException($"{sourceLabel} CSV response looks like HTML. Verify the Dropbox link is a direct download (dl=1) and shared publicly.");
             }
 
             if (stream.CanSeek)
