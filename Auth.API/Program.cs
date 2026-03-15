@@ -125,8 +125,8 @@ app.UseCors("AllowSpecificOrigin");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapHub<MinigamesHub>("/hubs/minigames");
-app.MapHub<MinigamesHub>("/api/hubs/minigames");
+app.MapHub<MinigamesHub>("/hubs/minigames").RequireRateLimiting("signalr-hub");
+app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub");
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())
@@ -169,5 +169,3 @@ await SeedData.SeedUsersAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedMentorsAsync(app.Services.CreateScope().ServiceProvider);
 
 app.Run();
-
-

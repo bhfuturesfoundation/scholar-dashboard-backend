@@ -63,6 +63,20 @@ namespace Auth.API.Extensions
                         });
                 });
 
+                options.AddPolicy("signalr-hub", httpContext =>
+                {
+                    var ipAddress = GetClientIpAddress(httpContext);
+
+                    return RateLimitPartition.GetFixedWindowLimiter(
+                        partitionKey: $"signalr_{ipAddress}",
+                        factory: _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = 300,
+                            Window = TimeSpan.FromMinutes(1),
+                            AutoReplenishment = true
+                        });
+                });
+
                 options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                 {
                     var ipAddress = GetClientIpAddress(httpContext);
