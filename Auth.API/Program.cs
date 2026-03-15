@@ -63,7 +63,6 @@ if (!string.IsNullOrWhiteSpace(redisConnection))
 {
     var redisOptions = new ConfigurationOptions
     {
-        ChannelPrefix = "scholar-minigames",
         AbortOnConnectFail = false,
     };
 
@@ -81,12 +80,15 @@ if (!string.IsNullOrWhiteSpace(redisConnection))
     else
     {
         redisOptions = ConfigurationOptions.Parse(redisConnection);
-        redisOptions.ChannelPrefix = "scholar-minigames";
         redisOptions.AbortOnConnectFail = false;
     }
 
     builder.Services.AddSignalR()
-        .AddStackExchangeRedis(redisOptions);
+        .AddStackExchangeRedis(redisConnection, options =>
+        {
+            options.Configuration.ChannelPrefix = RedisChannel.Literal("scholar-minigames");
+            options.ConnectionFactory = async writer => await ConnectionMultiplexer.ConnectAsync(redisOptions, writer);
+        });
 }
 else
 {
@@ -167,6 +169,5 @@ await SeedData.SeedUsersAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedMentorsAsync(app.Services.CreateScope().ServiceProvider);
 
 app.Run();
-
 
 
