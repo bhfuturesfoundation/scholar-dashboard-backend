@@ -9,6 +9,7 @@ using DotNetEnv;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -60,11 +61,32 @@ builder.Services.AddControllers();
 var redisConnection = builder.Configuration["REDIS_URL"] ?? builder.Configuration["REDIS_CONNECTION_STRING"];
 if (!string.IsNullOrWhiteSpace(redisConnection))
 {
-    builder.Services.AddSignalR()
-        .AddStackExchangeRedis(redisConnection, options =>
+    var redisOptions = new ConfigurationOptions
+    {
+        ChannelPrefix = "scholar-minigames",
+        AbortOnConnectFail = false,
+    };
+
+    if (Uri.TryCreate(redisConnection, UriKind.Absolute, out var redisUri) &&
+        (redisUri.Scheme == "redis" || redisUri.Scheme == "rediss"))
+    {
+        redisOptions.EndPoints.Add(redisUri.Host, redisUri.Port);
+        var userInfo = redisUri.UserInfo.Split(':', 2, StringSplitOptions.RemoveEmptyEntries);
+        if (userInfo.Length == 2)
         {
-            options.Configuration.ChannelPrefix = "scholar-minigames";
-        });
+            redisOptions.Password = userInfo[1];
+        }
+        redisOptions.Ssl = redisUri.Scheme == "rediss";
+    }
+    else
+    {
+        redisOptions = ConfigurationOptions.Parse(redisConnection);
+        redisOptions.ChannelPrefix = "scholar-minigames";
+        redisOptions.AbortOnConnectFail = false;
+    }
+
+    builder.Services.AddSignalR()
+        .AddStackExchangeRedis(redisOptions);
 }
 else
 {
@@ -145,7 +167,6 @@ await SeedData.SeedUsersAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedMentorsAsync(app.Services.CreateScope().ServiceProvider);
 
 app.Run();
-
 
 
 
