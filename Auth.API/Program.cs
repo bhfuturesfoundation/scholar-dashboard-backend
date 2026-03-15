@@ -57,7 +57,19 @@ builder.Services.AddDistributedMemoryCache();
 builder.Services.AddMapster();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddControllers();
-builder.Services.AddSignalR();
+var redisConnection = builder.Configuration["REDIS_URL"] ?? builder.Configuration["REDIS_CONNECTION_STRING"];
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    builder.Services.AddSignalR()
+        .AddStackExchangeRedis(redisConnection, options =>
+        {
+            options.Configuration.ChannelPrefix = "scholar-minigames";
+        });
+}
+else
+{
+    builder.Services.AddSignalR();
+}
 builder.Services.AddSingleton<IUserIdProvider, SubClaimUserIdProvider>();
 builder.Services.AddEndpointsApiExplorer();
 
@@ -133,7 +145,6 @@ await SeedData.SeedUsersAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedMentorsAsync(app.Services.CreateScope().ServiceProvider);
 
 app.Run();
-
 
 
 
