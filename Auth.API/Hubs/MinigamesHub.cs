@@ -16,10 +16,13 @@ namespace Auth.API.Hubs
         private static readonly ConcurrentDictionary<string, DuelSession> DuelSessions = new();
         private static readonly ConcurrentDictionary<string, ChessMatchState> ChessStates = new();
         private static readonly ConcurrentDictionary<string, ConnectFourState> ConnectFourStates = new();
+        private static readonly ConcurrentDictionary<string, ShufflePoolEntry> ShufflePool = new();
+        private static readonly object ShuffleLock = new();
 
         private static readonly TimeSpan RoomTtl = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan InviteTtl = TimeSpan.FromMinutes(3);
         private static readonly TimeSpan DuelTtl = TimeSpan.FromMinutes(20);
+        private static readonly TimeSpan ShuffleTtl = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan BroadcastThrottle = TimeSpan.FromMilliseconds(150);
 
         private const int DefaultRoundSeconds = 10;
@@ -54,6 +57,12 @@ namespace Auth.API.Hubs
             if (Context.Items.TryGetValue("duel", out var duelValue) && duelValue is string duelCode)
             {
                 await LeaveDuelSession(duelCode);
+            }
+
+            var disconnectedUserId = GetCurrentUserId();
+            if (!string.IsNullOrWhiteSpace(disconnectedUserId))
+            {
+                await RemoveFromShufflePoolAsync(disconnectedUserId);
             }
 
             await base.OnDisconnectedAsync(exception);
@@ -463,6 +472,199 @@ namespace Auth.API.Hubs
 
             Context.Items.Remove("duel");
             CleanupState();
+        }
+
+        public async Task<List<ShuffleMemberPayload>> GetShufflePool(string gameId)
+        {
+            CleanupState();
+            var normalizedGame = NormalizeGameId(gameId);
+            var entries = ShufflePool.Values
+                .Where(entry => entry.GameId == normalizedGame)
+                .OrderBy(entry => entry.JoinedAt)
+                .Select(entry => new ShuffleMemberPayload(entry.UserId, entry.DisplayName, entry.JoinedAt))
+                .ToList();
+
+            return await Task.FromResult(entries);
+        }
+
+        public async Task SubscribeToShufflePool(string gameId)
+        {
+            var normalizedGame = NormalizeGameId(gameId);
+            await Groups.AddToGroupAsync(Context.ConnectionId, ShuffleGroup(normalizedGame));
+            await BroadcastShufflePoolAsync(normalizedGame);
+        }
+
+        public async Task UnsubscribeFromShufflePool(string gameId)
+        {
+            var normalizedGame = NormalizeGameId(gameId);
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, ShuffleGroup(normalizedGame));
+        }
+
+        public async Task JoinShufflePool(string gameId)
+        {
+            CleanupState();
+
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                throw new HubException("Authentication required.");
+            }
+
+            var normalizedGame = NormalizeGameId(gameId);
+            var user = await _userManager.FindByIdAsync(userId);
+            var displayName = user == null ? "Scholar" : BuildDisplayName(user);
+            var entry = new ShufflePoolEntry(userId, displayName, normalizedGame, DateTimeOffset.UtcNow);
+
+            ShufflePool[userId] = entry;
+            Context.Items["shuffle"] = normalizedGame;
+
+            await Groups.AddToGroupAsync(Context.ConnectionId, ShuffleGroup(normalizedGame));
+            await BroadcastShufflePoolAsync(normalizedGame);
+        }
+
+        public async Task LeaveShufflePool(string gameId)
+        {
+            var normalizedGame = NormalizeGameId(gameId);
+            var userId = GetCurrentUserId();
+            if (!string.IsNullOrWhiteSpace(userId))
+            {
+                ShufflePool.TryRemove(userId, out _);
+            }
+
+            Context.Items.Remove("shuffle");
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, ShuffleGroup(normalizedGame));
+            await BroadcastShufflePoolAsync(normalizedGame);
+        }
+
+        public async Task<ShuffleMatchPayload?> StartShuffleMatch(string gameId)
+        {
+            CleanupState();
+
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                throw new HubException("Authentication required.");
+            }
+
+            var normalizedGame = NormalizeGameId(gameId);
+            var currentUser = await _userManager.FindByIdAsync(userId);
+            var currentDisplay = currentUser == null ? "Scholar" : BuildDisplayName(currentUser);
+
+            string? opponentId = null;
+            ShufflePoolEntry? opponentEntry = null;
+
+            lock (ShuffleLock)
+            {
+                var candidates = ShufflePool.Values
+                    .Where(entry => entry.GameId == normalizedGame && entry.UserId != userId)
+                    .ToList();
+
+                if (candidates.Count > 0)
+                {
+                    var randomIndex = Random.Shared.Next(candidates.Count);
+                    opponentEntry = candidates[randomIndex];
+                    opponentId = opponentEntry.UserId;
+
+                    ShufflePool.TryRemove(userId, out _);
+                    ShufflePool.TryRemove(opponentId, out _);
+                }
+            }
+
+            if (opponentEntry == null || opponentId == null)
+            {
+                return null;
+            }
+
+            var sessionId = CreateDuelSession(normalizedGame, userId, currentDisplay, opponentId, opponentEntry.DisplayName);
+
+            var callerPayload = new ShuffleMatchPayload(sessionId, normalizedGame, opponentEntry.DisplayName);
+            var opponentPayload = new ShuffleMatchPayload(sessionId, normalizedGame, currentDisplay);
+
+            await _hubContext.Clients.User(userId).SendAsync("MinigameShuffleMatched", callerPayload);
+            await _hubContext.Clients.User(opponentId).SendAsync("MinigameShuffleMatched", opponentPayload);
+            await BroadcastShufflePoolAsync(normalizedGame);
+
+            return callerPayload;
+        }
+
+        public async Task<ShuffleMatchPayload?> RequestShuffleMatchWith(string gameId, string opponentUserId)
+        {
+            CleanupState();
+
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                throw new HubException("Authentication required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(opponentUserId))
+            {
+                throw new HubException("Opponent user id is required.");
+            }
+
+            var normalizedGame = NormalizeGameId(gameId);
+            var currentUser = await _userManager.FindByIdAsync(userId);
+            var currentDisplay = currentUser == null ? "Scholar" : BuildDisplayName(currentUser);
+
+            ShufflePoolEntry? opponentEntry = null;
+
+            lock (ShuffleLock)
+            {
+                if (ShufflePool.TryGetValue(opponentUserId, out var entry) && entry.GameId == normalizedGame)
+                {
+                    opponentEntry = entry;
+                    ShufflePool.TryRemove(userId, out _);
+                    ShufflePool.TryRemove(opponentUserId, out _);
+                }
+            }
+
+            if (opponentEntry == null)
+            {
+                throw new HubException("Opponent is no longer waiting.");
+            }
+
+            var sessionId = CreateDuelSession(normalizedGame, userId, currentDisplay, opponentEntry.UserId, opponentEntry.DisplayName);
+
+            var callerPayload = new ShuffleMatchPayload(sessionId, normalizedGame, opponentEntry.DisplayName);
+            var opponentPayload = new ShuffleMatchPayload(sessionId, normalizedGame, currentDisplay);
+
+            await _hubContext.Clients.User(userId).SendAsync("MinigameShuffleMatched", callerPayload);
+            await _hubContext.Clients.User(opponentEntry.UserId).SendAsync("MinigameShuffleMatched", opponentPayload);
+            await BroadcastShufflePoolAsync(normalizedGame);
+
+            return callerPayload;
+        }
+
+        public async Task SendSpectatorReaction(string sessionId, string reaction)
+        {
+            var normalized = NormalizeCode(sessionId);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                throw new HubException("Session id is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(reaction))
+            {
+                return;
+            }
+
+            if (!DuelSessions.ContainsKey(normalized))
+            {
+                throw new HubException("Duel session was not found.");
+            }
+
+            var userId = GetCurrentUserId() ?? string.Empty;
+            var displayName = "Scholar";
+            if (!string.IsNullOrWhiteSpace(userId))
+            {
+                var user = await _userManager.FindByIdAsync(userId);
+                if (user != null)
+                {
+                    displayName = BuildDisplayName(user);
+                }
+            }
+
+            await _hubContext.Clients.Group(normalized).SendAsync("SpectatorReaction", new SpectatorReactionPayload(normalized, reaction.Trim(), displayName));
         }
 
 
@@ -964,6 +1166,64 @@ namespace Auth.API.Hubs
             CleanupState();
         }
 
+        private static string ShuffleGroup(string gameId)
+        {
+            return $"shuffle:{gameId}";
+        }
+
+        private async Task BroadcastShufflePoolAsync(string gameId)
+        {
+            var entries = ShufflePool.Values
+                .Where(entry => entry.GameId == gameId)
+                .OrderBy(entry => entry.JoinedAt)
+                .Select(entry => new ShuffleMemberPayload(entry.UserId, entry.DisplayName, entry.JoinedAt))
+                .ToList();
+
+            await _hubContext.Clients.Group(ShuffleGroup(gameId)).SendAsync("ShufflePoolUpdate", gameId, entries);
+        }
+
+        private async Task RemoveFromShufflePoolAsync(string userId)
+        {
+            if (ShufflePool.TryRemove(userId, out var entry))
+            {
+                await BroadcastShufflePoolAsync(entry.GameId);
+            }
+        }
+
+        private string CreateDuelSession(string gameId, string firstUserId, string firstDisplayName, string secondUserId, string secondDisplayName)
+        {
+            var roundSeconds = gameId switch
+            {
+                "neon-runner-duel" => NeonRunnerRoundSeconds,
+                "card-clash-duel" => CardClashRoundSeconds,
+                "knight-tactics-duel" => KnightTacticsRoundSeconds,
+                "chess-arena-duel" => ChessArenaRoundSeconds,
+                "connect-four-arena-duel" => ConnectFourRoundSeconds,
+                _ => SignalSmashRoundSeconds,
+            };
+
+            var sessionId = GenerateSessionId();
+            var duel = new DuelSession(sessionId, roundSeconds, gameId);
+
+            duel.Players[firstUserId] = new DuelPlayerState(firstUserId, firstDisplayName);
+            duel.Players[secondUserId] = new DuelPlayerState(secondUserId, secondDisplayName);
+            duel.Touch();
+
+            DuelSessions[sessionId] = duel;
+
+            if (gameId == "chess-arena-duel")
+            {
+                ChessStates[sessionId] = new ChessMatchState(sessionId, firstUserId, secondUserId);
+            }
+
+            if (gameId == "connect-four-arena-duel")
+            {
+                ConnectFourStates[sessionId] = new ConnectFourState(sessionId, firstUserId, secondUserId);
+            }
+
+            return sessionId;
+        }
+
         private static void CleanupState()
         {
             var now = DateTimeOffset.UtcNow;
@@ -1008,6 +1268,14 @@ namespace Auth.API.Hubs
                 if (!DuelSessions.ContainsKey(connect.Key))
                 {
                     ConnectFourStates.TryRemove(connect.Key, out _);
+                }
+            }
+
+            foreach (var entry in ShufflePool)
+            {
+                if (entry.Value.JoinedAt.Add(ShuffleTtl) <= now)
+                {
+                    ShufflePool.TryRemove(entry.Key, out _);
                 }
             }
         }
@@ -1451,6 +1719,31 @@ namespace Auth.API.Hubs
             int RoundSeconds,
             string? BoostedUserId,
             IReadOnlyList<DuelPlayerSnapshot> Players
+        );
+
+        public sealed record ShuffleMemberPayload(
+            string UserId,
+            string DisplayName,
+            DateTimeOffset JoinedAt
+        );
+
+        public sealed record ShuffleMatchPayload(
+            string SessionId,
+            string GameId,
+            string OpponentDisplayName
+        );
+
+        public sealed record SpectatorReactionPayload(
+            string SessionId,
+            string Reaction,
+            string FromDisplayName
+        );
+
+        public sealed record ShufflePoolEntry(
+            string UserId,
+            string DisplayName,
+            string GameId,
+            DateTimeOffset JoinedAt
         );
 
         public sealed record ChessStatePayload(
