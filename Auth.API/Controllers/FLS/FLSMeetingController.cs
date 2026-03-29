@@ -102,6 +102,12 @@ namespace Auth.API.Controllers.FLS
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateMeetingSlotRequest request)
         {
+            if (request == null)
+                return BadRequest(ApiResponse<object>.ErrorResponse("Request body is required."));
+
+            if (!ModelState.IsValid)
+                return BadRequest(ApiResponse<object>.ErrorResponse("Invalid meeting slot data."));
+
             var slot = await _meetingService.CreateSlotAsync(request);
             return Ok(ApiResponse<object>.SuccessResponse(slot, "Meeting slot created."));
         }
