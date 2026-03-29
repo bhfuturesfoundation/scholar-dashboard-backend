@@ -62,7 +62,7 @@ public class AuthController : ControllerBase
         if (!string.IsNullOrEmpty(loginResult.RefreshToken))
             CookieHelper.SetRefreshTokenCookie(HttpContext, loginResult.RefreshToken);
 
-        // Keep RefreshToken null in response so client doesn’t accidentally expose it
+        // Keep RefreshToken null in response so client doesnï¿½t accidentally expose it
         loginResult.RefreshToken = null;
 
         return Ok(ApiResponse<RegisterResponse>.SuccessResponse(
@@ -197,6 +197,33 @@ public class AuthController : ControllerBase
     {
         var result = await _twoFactorService.SetupTwoFactorAsync(GetUserId());
         return Ok(ApiResponse<bool>.SuccessResponse(result, "2FA enabled"));
+    }
+
+    [HttpPost("refresh")]
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Refresh()
+    {
+        var refreshToken = Request.Cookies["refresh_token"];
+        if (string.IsNullOrEmpty(refreshToken))
+            return Unauthorized(ApiResponse<AuthResponse>.ErrorResponse("No refresh token present."));
+
+        try
+        {
+            var expiredToken = Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last() ?? string.Empty;
+
+            var result = await _authService.RefreshTokenAsync(
+                new RefreshTokenRequest { Token = expiredToken, RefreshToken = refreshToken },
+                GetIpAddress());
+
+            CookieHelper.SetRefreshTokenCookie(HttpContext, result.RefreshToken);
+            result.RefreshToken = null;
+
+            return Ok(ApiResponse<AuthResponse>.SuccessResponse(result, "Token refreshed"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Token refresh failed");
+            return Unauthorized(ApiResponse<AuthResponse>.ErrorResponse("Session expired. Please log in again."));
+        }
     }
 
     [Authorize]

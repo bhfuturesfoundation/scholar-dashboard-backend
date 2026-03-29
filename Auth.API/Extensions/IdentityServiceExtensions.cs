@@ -51,7 +51,7 @@ namespace Auth.API.Extensions
                 opts.Secret = secret;
                 opts.Issuer = issuer;
                 opts.Audience = audience;
-                opts.ExpirationInMinutes = 15; // TESTING
+                opts.ExpirationInMinutes = 480; // 8 hours
                 opts.RefreshTokenExpirationInDays = 7;
             });
 
@@ -84,7 +84,7 @@ namespace Auth.API.Extensions
                     ValidIssuer = issuer,
                     ValidAudience = audience,
                     ValidateLifetime = true,
-                    ClockSkew = TimeSpan.Zero
+                    ClockSkew = TimeSpan.FromMinutes(5)
                 };
 
                 options.Events = new JwtBearerEvents
@@ -142,23 +142,23 @@ namespace Auth.API.Extensions
 
                         if (httpContext.Items.ContainsKey("TokenRefreshed"))
                         {
+                            // Return 401 with the refreshed token in the body.
+                            // The frontend detects this, stores the new token, and retries the request.
+                            // (Returning 200 here was wrong â€” it replaced the actual API response body.)
                             context.HandleResponse();
-
+                            httpContext.Response.StatusCode = 401;
+                            httpContext.Response.ContentType = "application/json";
                             var response = new
                             {
-                                success = true,
-                                message = "Token refreshed",
+                                success = false,
+                                message = "token_refreshed",
                                 token = httpContext.Items["NewToken"] as string
                             };
-
-                            httpContext.Response.StatusCode = 200;
-                            httpContext.Response.ContentType = "application/json";
-                            var jsonResponse = System.Text.Json.JsonSerializer.Serialize(response);
-                            await httpContext.Response.WriteAsync(jsonResponse);
+                            await httpContext.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response));
                             return;
                         }
 
-                        // Only throw if we didn’t refresh
+                        // Only throw if we didnï¿½t refresh
                         context.HandleResponse();
                         var logger = httpContext.RequestServices.GetRequiredService<ILogger<JwtBearerEvents>>();
                         logger.LogWarning("Unauthorized access. Token may be invalid or expired.");
