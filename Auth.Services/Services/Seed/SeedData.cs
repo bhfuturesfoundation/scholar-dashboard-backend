@@ -404,7 +404,7 @@ namespace Auth.API.Seed
         {
             var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
 
-            string[] roleNames = { "Admin", "User", "Mentor", "ProgramManager", "VolunteeringTeam" };
+            string[] roleNames = { "Admin", "User", "Mentor", "ProgramManager", "VolunteeringTeam", "FLSSpeaker", "FLSAdmin" };
             foreach (var roleName in roleNames)
             {
                 if (!await roleManager.RoleExistsAsync(roleName))

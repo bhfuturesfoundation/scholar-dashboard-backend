@@ -4,7 +4,9 @@ using Auth.API.Hubs;
 using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
+using Auth.Services.Interfaces.FLS;
 using Auth.Services.Services;
+using Auth.Services.Services.FLS;
 using DotNetEnv;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +55,26 @@ builder.Services.AddScoped<IAnswerService, AnswerService>();
 builder.Services.AddScoped<IJournalService, JournalService>();
 builder.Services.AddScoped<IMentorMenteeService, MentorMenteeService>();
 builder.Services.AddScoped<IVolunteeringService, VolunteeringService>();
+
+// FLS Speaker Management
+builder.Services.AddScoped<IFLSSpeakerService, FLSSpeakerService>();
+builder.Services.AddScoped<IFLSUploadService, FLSUploadService>();
+builder.Services.AddScoped<IFLSMeetingService, FLSMeetingService>();
+builder.Services.AddScoped<IFLSDocumentService, FLSDocumentService>();
+builder.Services.AddScoped<IFLSTaskService, FLSTaskService>();
+builder.Services.AddScoped<IFLSAdminService, FLSAdminService>();
+builder.Services.AddScoped<IFLSNotificationService, FLSNotificationService>();
+
+// Allow large file uploads (max 20 MB)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 20 * 1024 * 1024;
+});
+
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Limits.MaxRequestBodySize = 20 * 1024 * 1024;
+});
 
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddMapster();
