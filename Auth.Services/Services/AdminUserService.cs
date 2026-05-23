@@ -18,11 +18,18 @@ public class AdminUserService : IAdminUserService
         _logger = logger;
     }
 
-    public async Task<List<UserWithRolesResponse>> GetAllUsersAsync()
+    public async Task<PagedResult<UserWithRolesResponse>> GetAllUsersAsync(int page = 1, int pageSize = 50)
     {
-        var users = _userManager.Users.ToList();
-        var result = new List<UserWithRolesResponse>();
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
 
+        var query = _userManager.Users.OrderBy(u => u.CreatedAt);
+        var totalCount = query.Count();
+
+        // Paginate at the DB level so we only run GetRolesAsync for this page's users
+        var users = query.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        var result = new List<UserWithRolesResponse>();
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
@@ -32,14 +39,20 @@ public class AdminUserService : IAdminUserService
                 LastName = user.LastName,
                 Title = user.Title,
                 Id = user.Id,
-                Email = user.Email ?? string.Empty,  
+                Email = user.Email ?? string.Empty,
                 Roles = roles.ToList(),
                 IsActive = user.IsActive,
                 CreatedAt = user.CreatedAt
             });
         }
 
-        return result;
+        return new PagedResult<UserWithRolesResponse>
+        {
+            Items = result,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
     }
 
     public async Task<bool> UpdateUsersActiveStatusAsync(List<string> userIds, bool isActive)

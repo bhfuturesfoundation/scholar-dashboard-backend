@@ -7,7 +7,7 @@ namespace Auth.Services.Interfaces
     {
         Task<List<JournalAnswerResponse>> GetJournalForUserAsync(string scholarId, string monthYear);
         Task<List<JournalSubmissionStatusDto>> GetUserSubmissionsAsync(string userId);
-        Task<List<ScholarJournalOverviewDto>> GetJournalOverviewAsync();
+        Task<PagedResult<ScholarJournalOverviewDto>> GetJournalOverviewAsync(int page = 1, int pageSize = 100);
         Task<UserDetailsResponse?> GetUserByIdAsync(string userId);
     }
 }

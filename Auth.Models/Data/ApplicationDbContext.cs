@@ -20,6 +20,12 @@ namespace Auth.Models.Data
         public DbSet<Skill> Skills { get; set; }
         public DbSet<JournalSubmission> JournalSubmissions { get; set; }
 
+        // Gamification
+        public DbSet<GameScore> GameScores { get; set; }
+
+        // Audit
+        public DbSet<AuditEvent> AuditEvents { get; set; }
+
         // FLS Speaker Management
         public DbSet<SpeakerProfile> SpeakerProfiles { get; set; }
         public DbSet<SpeakerUpload> SpeakerUploads { get; set; }
@@ -36,6 +42,32 @@ namespace Auth.Models.Data
             builder.Ignore<IdentityUserLogin<string>>();
             builder.Ignore<IdentityRoleClaim<string>>();
             builder.Ignore<IdentityRole<string>>();
+
+            // GameScore → User
+            builder.Entity<GameScore>()
+                .HasOne(gs => gs.User)
+                .WithMany()
+                .HasForeignKey(gs => gs.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<GameScore>()
+                .HasIndex(gs => new { gs.UserId, gs.GameId });
+
+            builder.Entity<GameScore>()
+                .HasIndex(gs => new { gs.GameId, gs.Score });
+
+            // AuditEvent → User (nullable)
+            builder.Entity<AuditEvent>()
+                .HasOne(ae => ae.User)
+                .WithMany()
+                .HasForeignKey(ae => ae.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<AuditEvent>()
+                .HasIndex(ae => ae.Timestamp);
+
+            builder.Entity<AuditEvent>()
+                .HasIndex(ae => ae.EventType);
 
             // Existing relationships
             builder.Entity<RefreshToken>()

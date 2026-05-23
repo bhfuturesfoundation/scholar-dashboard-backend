@@ -72,25 +72,38 @@ namespace Auth.Services.Services
             }
         }
 
-        public async Task<List<ScholarJournalOverviewDto>> GetJournalOverviewAsync()
+        public async Task<PagedResult<ScholarJournalOverviewDto>> GetJournalOverviewAsync(int page = 1, int pageSize = 100)
         {
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize, 1, 500);
+
             try
             {
-                // Preload roles
-                var rolesDict = await _context.Roles.ToDictionaryAsync(r => r.Id, r => r.Name);
-                var userRoles = await _context.UserRoles.ToListAsync();
-                var users = await _context.Users.ToListAsync();
+                var totalCount = await _context.Users.CountAsync();
 
-                // Only load answers for question 16
-                var answers = await _context.Answers
-                    .Where(a => a.QuestionId == 16) // Focus on last question
+                // Only load a single page of users — avoids pulling every user on every request
+                var users = await _context.Users
+                    .OrderBy(u => u.LastName)
+                    .ThenBy(u => u.FirstName)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
                     .ToListAsync();
 
-                int CalculateSatisfactionScore(IEnumerable<Answer> answersForMonth)
+                var userIds = users.Select(u => u.Id).ToList();
+
+                // Scope all supporting queries to just this page's users
+                var rolesDict = await _context.Roles.ToDictionaryAsync(r => r.Id, r => r.Name);
+                var userRoles = await _context.UserRoles
+                    .Where(ur => userIds.Contains(ur.UserId))
+                    .ToListAsync();
+                var answers = await _context.Answers
+                    .Where(a => userIds.Contains(a.ScholarId) && a.QuestionId == 16)
+                    .ToListAsync();
+
+                static int CalculateSatisfactionScore(IEnumerable<Answer> answersForMonth)
                 {
                     double total = 0;
                     int count = 0;
-
                     foreach (var ans in answersForMonth)
                     {
                         if (int.TryParse(ans.Response, out int val))
@@ -99,8 +112,7 @@ namespace Auth.Services.Services
                             count++;
                         }
                     }
-
-                    // Scale 1-10 to %
+                    // Scale 1-10 → 0-100 %
                     return count > 0 ? (int)Math.Round((total / count) * 10) : 0;
                 }
 
@@ -132,7 +144,13 @@ namespace Auth.Services.Services
                     };
                 }).ToList();
 
-                return scholars;
+                return new PagedResult<ScholarJournalOverviewDto>
+                {
+                    Items = scholars,
+                    TotalCount = totalCount,
+                    Page = page,
+                    PageSize = pageSize
+                };
             }
             catch (Exception ex)
             {

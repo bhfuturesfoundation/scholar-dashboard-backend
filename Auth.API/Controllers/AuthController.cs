@@ -1,5 +1,6 @@
 using Auth.API.Helpers;
 using Auth.Models.Exceptions;
+using Auth.Services.Interfaces;
 using Auth.Models.Request;
 using Auth.Models.Response;
 using Auth.Services.Interfaces;
@@ -19,6 +20,7 @@ public class AuthController : ControllerBase
     private readonly IUserService _userService;
     private readonly ITwoFactorService _twoFactorService;
     private readonly IEmailService _emailService;
+    private readonly IAuditService _auditService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -27,6 +29,7 @@ public class AuthController : ControllerBase
         IUserService userService,
         ITwoFactorService twoFactorService,
         IEmailService emailService,
+        IAuditService auditService,
         ILogger<AuthController> logger)
     {
         _authService = authService;
@@ -34,6 +37,7 @@ public class AuthController : ControllerBase
         _userService = userService;
         _twoFactorService = twoFactorService;
         _emailService = emailService;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -136,11 +140,11 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult<ApiResponse<AuthResponse>>> Login([FromBody] LoginRequest request)
     {
+        string ipAddress = GetIpAddress();
+        _logger.LogInformation("Login request from IP: {IpAddress}", ipAddress);
+
         try
         {
-            string ipAddress = GetIpAddress();
-            _logger.LogInformation("Login request from IP: {IpAddress}", ipAddress);
-
             var result = await _authService.LoginAsync(request, ipAddress);
 
             if (!string.IsNullOrEmpty(result.RefreshToken))
@@ -153,6 +157,9 @@ public class AuthController : ControllerBase
             else if (result.RequiresTwoFactor)
                 message = "2FA verification required";
 
+            // Fire-and-forget audit — don't await so it can't slow the login response
+            _ = _auditService.LogAsync("Login.Success", payload: request.Email, ipAddress: ipAddress);
+
             // Hide refresh token in response payload, keep it only in cookie for security
             result.RefreshToken = null;
 
@@ -161,6 +168,7 @@ public class AuthController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during login for {Email}", request.Email);
+            _ = _auditService.LogAsync("Login.Failed", payload: request.Email, ipAddress: ipAddress);
             return BadRequest(ApiResponse<AuthResponse>.ErrorResponse("Login failed."));
         }
     }
@@ -349,9 +357,10 @@ public class AuthController : ControllerBase
                 return BadRequest(ApiResponse<bool>.ErrorResponse(errors));
             }
 
-            // Optional: remove MustChangePassword if needed
             user.MustChangePassword = false;
             await _userService.UpdateUserAsync(user);
+
+            _ = _auditService.LogAsync("Password.Reset", payload: request.Email, ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString());
 
             return Ok(ApiResponse<bool>.SuccessResponse(true, "Password has been reset successfully."));
         }

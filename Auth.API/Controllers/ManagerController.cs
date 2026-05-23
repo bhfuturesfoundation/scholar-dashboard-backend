@@ -45,24 +45,19 @@ namespace Auth.API.Controllers
             }
         }
         [HttpGet("overview")]
-        public async Task<ActionResult<ApiResponse<List<ScholarJournalOverviewDto>>>> GetJournalOverview()
+        public async Task<ActionResult<ApiResponse<PagedResult<ScholarJournalOverviewDto>>>> GetJournalOverview(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 100)
         {
             try
             {
-                var data = await _managerService.GetJournalOverviewAsync();
-
-                if (data == null || !data.Any())
-                {
-                    _logger.LogWarning("No journal overview entries found");
-                    return NotFound(ApiResponse<List<ScholarJournalOverviewDto>>.ErrorResponse("No journal overview entries found"));
-                }
-
-                return Ok(ApiResponse<List<ScholarJournalOverviewDto>>.SuccessResponse(data, "Journal overview fetched successfully"));
+                var result = await _managerService.GetJournalOverviewAsync(page, pageSize);
+                return Ok(ApiResponse<PagedResult<ScholarJournalOverviewDto>>.SuccessResponse(result, "Journal overview fetched successfully"));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching journal overview");
-                return StatusCode(500, ApiResponse<List<ScholarJournalOverviewDto>>.ErrorResponse("An unexpected error occurred while fetching the journal overview"));
+                return StatusCode(500, ApiResponse<PagedResult<ScholarJournalOverviewDto>>.ErrorResponse("An unexpected error occurred while fetching the journal overview"));
             }
         }
         [HttpGet("{userId}")]

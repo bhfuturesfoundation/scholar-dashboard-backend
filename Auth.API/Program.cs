@@ -1,4 +1,5 @@
 using Auth.API.Extensions;
+using Auth.API.HealthChecks;
 using Auth.API.Middleware;
 using Auth.API.Hubs;
 using Auth.API.Seed;
@@ -9,6 +10,7 @@ using Auth.Services.Services;
 using Auth.Services.Services.FLS;
 using DotNetEnv;
 using Mapster;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
 using StackExchange.Redis;
@@ -55,6 +57,14 @@ builder.Services.AddScoped<IAnswerService, AnswerService>();
 builder.Services.AddScoped<IJournalService, JournalService>();
 builder.Services.AddScoped<IMentorMenteeService, MentorMenteeService>();
 builder.Services.AddScoped<IVolunteeringService, VolunteeringService>();
+
+// Gamification & Audit
+builder.Services.AddScoped<IGameScoreService, GameScoreService>();
+builder.Services.AddScoped<IAuditService, AuditService>();
+
+// Health checks
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database");
 
 // FLS Speaker Management
 builder.Services.AddScoped<IFLSSpeakerService, FLSSpeakerService>();
@@ -140,6 +150,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseRouting();
 app.UseCors("AllowSpecificOrigin");
@@ -147,6 +158,7 @@ app.UseHttpsRedirection();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapHealthChecks("/healthz");
 app.MapHub<MinigamesHub>("/hubs/minigames").RequireRateLimiting("signalr-hub");
 app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub");
 app.MapControllers();
