@@ -169,30 +169,32 @@ using (var scope = app.Services.CreateScope())
     var conn = db.Database.GetDbConnection();
     await conn.OpenAsync();
 
-    // Check if database has any tables
+    // Detect whether any user tables already exist in the DB.
+    // This is true for Railway (schema pre-dates migrations) and for local DBs
+    // that were created via EnsureCreated before the migration chain was introduced.
     var hasTables = conn.GetSchema("Tables").Rows.Count > 0;
 
-    // Check for pending migrations
-    var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
-
-    if (!hasTables)
-    {
-        // DB empty ? create schema
-        await db.Database.EnsureCreatedAsync();
-        Console.WriteLine("Database was empty. Created new schema.");
-    }
-    else if (pendingMigrations.Any())
-    {
-        // Apply any pending migrations
-        await db.Database.MigrateAsync();
-        Console.WriteLine("Applied pending migrations.");
-    }
-    else
-    {
-        Console.WriteLine("Database is up-to-date. No actions required.");
-    }
-
     await conn.CloseAsync();
+
+    // GetPendingMigrationsAsync creates __EFMigrationsHistory if it doesn't exist yet.
+    var pendingMigrations = (await db.Database.GetPendingMigrationsAsync()).ToList();
+
+    if (hasTables && pendingMigrations.Contains("20250901000000_InitialSchema"))
+    {
+        // The schema was created before the InitialSchema migration existed (via EnsureCreated).
+        // Fake-apply it so MigrateAsync doesn't try to CREATE TABLE on tables that already exist.
+        // ON CONFLICT DO NOTHING makes this idempotent in case it was already recorded.
+        await db.Database.ExecuteSqlRawAsync(
+            "INSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") " +
+            "VALUES ('20250901000000_InitialSchema', '8.0.5') ON CONFLICT DO NOTHING");
+        Console.WriteLine("Pre-existing schema detected — recorded InitialSchema as applied.");
+    }
+
+    // MigrateAsync is always safe: it's a no-op when nothing is pending,
+    // creates the DB from scratch on an empty DB, and applies only pending
+    // migrations on an existing DB. No more EnsureCreated paths.
+    await db.Database.MigrateAsync();
+    Console.WriteLine("Database is up-to-date.");
 }
 
 
