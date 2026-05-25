@@ -134,12 +134,17 @@ namespace Auth.API.Seed
 
             await context.SaveChangesAsync();
 
-            // ✅ Upload final CSV to Dropbox directly
-            var fileName = $"/generated-passwords-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
-            await DropboxUploader.UploadTextAsync(fileName, sb.ToString());
-
-            logger.LogInformation("User seeding finished. Created: {Created}, Skipped: {Skipped}. Passwords uploaded to Dropbox as {File}",
-                createdCount, skippedCount, fileName);
+            if (createdCount > 0)
+            {
+                var fileName = $"/generated-passwords-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
+                await DropboxUploader.UploadTextAsync(fileName, sb.ToString());
+                logger.LogInformation("User seeding finished. Created: {Created}, Skipped: {Skipped}. Passwords uploaded to Dropbox as {File}",
+                    createdCount, skippedCount, fileName);
+            }
+            else
+            {
+                logger.LogInformation("User seeding finished. No new users — Dropbox upload skipped. Skipped: {Skipped}", skippedCount);
+            }
         }
 
         public static async Task SeedMentorsAsync(IServiceProvider serviceProvider)
