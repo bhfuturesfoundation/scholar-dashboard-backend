@@ -34,6 +34,8 @@ namespace Auth.Models.Data
         public DbSet<SpeakerTask> SpeakerTasks { get; set; }
         public DbSet<FLSDocument> FLSDocuments { get; set; }
         public DbSet<SpeakerNotification> SpeakerNotifications { get; set; }
+        public DbSet<EmailCampaign> EmailCampaigns { get; set; }
+        public DbSet<EmailCampaignRecipient> EmailCampaignRecipients { get; set; }
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -155,6 +157,25 @@ namespace Auth.Models.Data
 
             builder.Entity<MeetingTimeSlot>()
                 .HasIndex(mts => mts.StartTime);
+
+            // FLS: EmailCampaignRecipient → EmailCampaign
+            builder.Entity<EmailCampaignRecipient>()
+                .HasOne(r => r.EmailCampaign)
+                .WithMany(c => c.Recipients)
+                .HasForeignKey(r => r.EmailCampaignId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The history screen lists campaigns newest-first; this index keeps that
+            // ordering off a sequential scan as the table grows.
+            builder.Entity<EmailCampaign>()
+                .HasIndex(c => c.CreatedAt);
+
+            builder.Entity<EmailCampaign>()
+                .HasIndex(c => c.CreatedByUserId);
+
+            // Campaign detail filters recipients by delivery status ("show me the failures").
+            builder.Entity<EmailCampaignRecipient>()
+                .HasIndex(r => new { r.EmailCampaignId, r.Status });
         }
     }
 }

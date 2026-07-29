@@ -1,3 +1,4 @@
+using Auth.Models.Constants;
 using Auth.Models.Request.FLS;
 using Auth.Models.Response;
 using Auth.Services.Interfaces.FLS;
@@ -31,7 +32,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Speaker: get their personalized tasks/timeline.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("my")]
         public async Task<IActionResult> GetMyTasks()
         {
@@ -46,7 +47,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: get tasks for a specific speaker.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpGet("speaker/{speakerProfileId:int}")]
         public async Task<IActionResult> GetForSpeaker(int speakerProfileId)
         {
@@ -57,7 +58,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: create a task for a speaker.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateSpeakerTaskRequest request)
         {
@@ -68,7 +69,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: update a task.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPut("{taskId:int}")]
         public async Task<IActionResult> Update(int taskId, [FromBody] UpdateSpeakerTaskRequest request)
         {
@@ -79,7 +80,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: delete a task.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpDelete("{taskId:int}")]
         public async Task<IActionResult> Delete(int taskId)
         {

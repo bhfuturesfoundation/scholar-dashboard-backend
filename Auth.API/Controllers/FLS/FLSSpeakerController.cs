@@ -1,3 +1,4 @@
+using Auth.Models.Constants;
 using Auth.Models.Request.FLS;
 using Auth.Models.Response;
 using Auth.Services.Interfaces.FLS;
@@ -7,8 +8,18 @@ using System.Security.Claims;
 
 namespace Auth.API.Controllers.FLS
 {
+    /// <summary>
+    /// Speaker profiles.
+    ///
+    /// Authorisation defaults to deny at the class level, with <c>[AllowAnonymous]</c>
+    /// applied explicitly to the one public endpoint. Previously the class carried no
+    /// [Authorize] at all and every endpoint protected itself — which worked, but meant a
+    /// newly added action was public until someone remembered to annotate it. Deny-by-
+    /// default turns that omission into a 401 instead of a data leak.
+    /// </summary>
     [Route("api/fls/speakers")]
     [ApiController]
+    [Authorize]
     public class FLSSpeakerController : ControllerBase
     {
         private readonly IFLSSpeakerService _speakerService;
@@ -23,8 +34,10 @@ namespace Auth.API.Controllers.FLS
         private string GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
 
         /// <summary>
-        /// Self-registration endpoint for FLS speakers.
+        /// Self-registration endpoint for FLS speakers. Intentionally public — this is how
+        /// a speaker creates their account in the first place.
         /// </summary>
+        [AllowAnonymous]
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] FLSRegisterRequest request)
         {
@@ -35,7 +48,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Get the current speaker's own profile.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("me")]
         public async Task<IActionResult> GetMyProfile()
         {
@@ -49,7 +62,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Speaker updates their own profile (bio, organization).
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpPut("me")]
         public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateSpeakerProfileRequest request)
         {
@@ -64,7 +77,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Check if the speaker can still modify their uploads.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("me/can-modify")]
         public async Task<IActionResult> CanModify()
         {
@@ -79,7 +92,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: get speaker by profile ID.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetById(int id)
         {
@@ -93,7 +106,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: deregister a speaker.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPost("{id:int}/deregister")]
         public async Task<IActionResult> Deregister(int id, [FromBody] DeregisterSpeakerRequest request)
         {
@@ -104,7 +117,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: reactivate a deregistered speaker.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPost("{id:int}/reactivate")]
         public async Task<IActionResult> Reactivate(int id)
         {
@@ -115,7 +128,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: update accommodation/flight status.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPut("{id:int}/accommodation")]
         public async Task<IActionResult> UpdateAccommodation(int id, [FromBody] UpdateSpeakerAccommodationRequest request)
         {
@@ -126,7 +139,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: set modification deadline for a speaker.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPut("{id:int}/modification-deadline")]
         public async Task<IActionResult> SetModificationDeadline(int id, [FromBody] SetModificationDeadlineRequest request)
         {

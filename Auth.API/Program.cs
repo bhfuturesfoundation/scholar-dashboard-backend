@@ -24,6 +24,7 @@ Env.TraversePath().Load();
 builder.Services.AddPersistenceServices(builder.Configuration);
 builder.Services.AddIdentityServices(builder.Configuration);
 builder.Services.AddInfrastructureServices(builder.Configuration);
+builder.Services.AddEmailProviders(builder.Configuration);
 builder.Services.AddRabbitMQServices(builder.Configuration);
 builder.Services.AddAppRateLimiter(builder.Configuration);
 
@@ -74,6 +75,7 @@ builder.Services.AddScoped<IFLSDocumentService, FLSDocumentService>();
 builder.Services.AddScoped<IFLSTaskService, FLSTaskService>();
 builder.Services.AddScoped<IFLSAdminService, FLSAdminService>();
 builder.Services.AddScoped<IFLSNotificationService, FLSNotificationService>();
+builder.Services.AddScoped<IFLSCampaignService, FLSCampaignService>();
 
 // Allow large file uploads (max 20 MB)
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
@@ -200,6 +202,7 @@ using (var scope = app.Services.CreateScope())
 
 // ? Seed data after migrations
 await SeedData.SeedRolesAsync(app.Services.CreateScope().ServiceProvider);
+await SeedData.SeedStaffAccountsAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedQuestionsAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedUsersAsync(app.Services.CreateScope().ServiceProvider);
 await SeedData.SeedMentorsAsync(app.Services.CreateScope().ServiceProvider);

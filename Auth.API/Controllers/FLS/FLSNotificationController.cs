@@ -1,3 +1,4 @@
+using Auth.Models.Constants;
 using Auth.Models.Request.FLS;
 using Auth.Models.Response;
 using Auth.Services.Interfaces.FLS;
@@ -28,7 +29,7 @@ namespace Auth.API.Controllers.FLS
 
         private string GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
 
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet]
         public async Task<IActionResult> GetNotifications([FromQuery] bool unreadOnly = false)
         {
@@ -40,7 +41,7 @@ namespace Auth.API.Controllers.FLS
             return Ok(ApiResponse<object>.SuccessResponse(notifications, ""));
         }
 
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("unread-count")]
         public async Task<IActionResult> GetUnreadCount()
         {
@@ -52,7 +53,7 @@ namespace Auth.API.Controllers.FLS
             return Ok(ApiResponse<object>.SuccessResponse(new { count }, ""));
         }
 
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpPut("{notificationId:int}/read")]
         public async Task<IActionResult> MarkRead(int notificationId)
         {
@@ -64,7 +65,7 @@ namespace Auth.API.Controllers.FLS
             return Ok(ApiResponse<bool>.SuccessResponse(true, "Marked as read."));
         }
 
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpPut("read-all")]
         public async Task<IActionResult> MarkAllRead()
         {
@@ -76,7 +77,7 @@ namespace Auth.API.Controllers.FLS
             return Ok(ApiResponse<bool>.SuccessResponse(true, "All notifications marked as read."));
         }
 
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsCommunications)]
         [HttpPost("send")]
         public async Task<IActionResult> Send([FromBody] SendNotificationRequest request)
         {
@@ -84,7 +85,7 @@ namespace Auth.API.Controllers.FLS
             return Ok(ApiResponse<bool>.SuccessResponse(true, "Notification(s) sent."));
         }
 
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsCommunications)]
         [HttpPost("send-reminders")]
         public async Task<IActionResult> SendReminders()
         {
