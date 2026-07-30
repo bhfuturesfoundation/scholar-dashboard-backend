@@ -2,8 +2,11 @@
 using Auth.Models.Exceptions;
 using Auth.Models.Request;
 using Auth.Models.Response;
+using Auth.Models.Results;
 using Auth.Services.Interfaces;
+using Auth.Services.Settings;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Auth.Services.Services
 {
@@ -14,19 +17,22 @@ namespace Auth.Services.Services
         private readonly ILogger<IAuthService> _logger;
         private readonly IEmailService _emailService;
         private readonly ITwoFactorService _twoFactorService;
+        private readonly JWTSettings _jwtSettings;
 
         public AuthService(
             IUserService userService,
             ITokenService tokenService,
             ILogger<IAuthService> logger,
             IEmailService emailService,
-            ITwoFactorService twoFactorService)
+            ITwoFactorService twoFactorService,
+            IOptions<JWTSettings> jwtSettings)
         {
             _userService = userService;
             _tokenService = tokenService;
             _logger = logger;
             _emailService = emailService;
             _twoFactorService = twoFactorService;
+            _jwtSettings = jwtSettings.Value;
         }
 
         public async Task<(User User, RegisterResponse Response)> RegisterAsync(RegisterRequest request)
@@ -51,13 +57,30 @@ namespace Auth.Services.Services
         {
             _logger.LogInformation("Starting login for email {Email}", request.Email);
 
-            var (succeeded, user, requiresTwoFactor, emailConfirmed) = await _userService.VerifyCredentialsAsync(request.Email, request.Password);
+            var verification = await _userService.VerifyCredentialsAsync(request.Email, request.Password);
 
-            if (!succeeded)
+            if (!verification.Succeeded)
             {
-                _logger.LogWarning("Failed login attempt for email {Email} - invalid credentials", request.Email);
-                throw new AuthenticationException("Invalid email or password.");
+                // Each reason gets its own message. Previously every failure surfaced to the
+                // browser as 400 "Login failed.", so a locked-out account, a deactivated
+                // account and a typo were indistinguishable — including to us in support.
+                throw verification.FailureReason switch
+                {
+                    CredentialFailureReason.LockedOut => new AuthenticationException(
+                        verification.LockoutEnd.HasValue
+                            ? $"Too many failed attempts. Try again after {verification.LockoutEnd.Value.UtcDateTime:HH:mm} UTC."
+                            : "Too many failed attempts. Please try again shortly."),
+
+                    CredentialFailureReason.Disabled => new AuthenticationException(
+                        "This account has been deactivated. Please contact an administrator."),
+
+                    _ => new AuthenticationException("Invalid email or password.")
+                };
             }
+
+            var user = verification.User!;
+            var requiresTwoFactor = verification.RequiresTwoFactor;
+            var emailConfirmed = verification.EmailConfirmed;
 
             if (user.MustChangePassword)
             {
@@ -69,7 +92,10 @@ namespace Auth.Services.Services
                 {
                     Token = jwtPass,
                     RefreshToken = refreshPass,
-                    Expiration = DateTime.UtcNow.AddMinutes(60),
+                    // Was hardcoded to 60 while tokens are actually issued for
+                    // JWTSettings.ExpirationInMinutes (480), so the client was told the
+                    // session ended seven hours before it did.
+                    Expiration = DateTime.UtcNow.AddMinutes(_jwtSettings.ExpirationInMinutes),
                     RequiresPasswordChange = true,
                     RequiresTwoFactor = false,
                     EmailConfirmed = emailConfirmed
@@ -99,21 +125,22 @@ namespace Auth.Services.Services
             {
                 Token = jwtToken,
                 RefreshToken = refreshToken,
-                Expiration = DateTime.UtcNow.AddMinutes(60),
+                Expiration = DateTime.UtcNow.AddMinutes(_jwtSettings.ExpirationInMinutes),
                 RequiresTwoFactor = false,
                 EmailConfirmed = emailConfirmed
             };
 
+            // The two branches here were inverted along with the flag they tested, so the
+            // "unconfirmed email" notice was shown to exactly the users whose email WAS
+            // confirmed.
             if (emailConfirmed)
-            {
-                _logger.LogInformation("Login successful for user {Email} with unconfirmed email", user.Email);
-            }
-            else
-            {
                 _logger.LogInformation("Login successful for user {Email}", user.Email);
-            }
+            else
+                _logger.LogInformation("Login successful for user {Email} with unconfirmed email", user.Email);
 
-            _logger.LogInformation("Returning login response with refresh token: {RefreshToken}", response.RefreshToken);
+            // Never log the refresh token — it is a bearer credential, and application logs
+            // are retained and shipped far more widely than credentials should be.
+            _logger.LogInformation("Returning login response for user {Email}", user.Email);
 
             return response;
         }

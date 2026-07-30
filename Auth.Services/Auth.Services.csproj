@@ -24,12 +24,20 @@
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
+		<PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+		<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
 		<PackageReference Include="RabbitMQ.Client" Version="6.5.0" />
 		<PackageReference Include="Resend" Version="0.2.1" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\Auth.Models\Auth.Models.csproj" />
+	</ItemGroup>
+
+	<!-- Lets the test project exercise internal helpers (e.g. ManagerService.BuildSubmissions)
+	     without widening their public surface for production callers. -->
+	<ItemGroup>
+		<InternalsVisibleTo Include="Auth.Tests" />
 	</ItemGroup>
 
 	<ItemGroup>

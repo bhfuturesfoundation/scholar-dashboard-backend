@@ -1,3 +1,4 @@
+using Auth.Models.Constants;
 using Auth.Models.Response;
 using Auth.Services.Interfaces.FLS;
 using Microsoft.AspNetCore.Authorization;
@@ -7,7 +8,7 @@ namespace Auth.API.Controllers.FLS
 {
     [Route("api/fls/admin")]
     [ApiController]
-    [Authorize(Roles = "Admin,FLSAdmin")]
+    [Authorize(Roles = AppRoles.FlsManagement)]
     public class FLSAdminController : ControllerBase
     {
         private readonly IFLSAdminService _adminService;
@@ -21,8 +22,11 @@ namespace Auth.API.Controllers.FLS
 
         /// <summary>
         /// Get overview of all speakers with completion status.
+        /// Partner members need this to pick campaign recipients, so it is widened to the
+        /// communications group; the write endpoints below stay management-only.
         /// </summary>
         [HttpGet("speakers")]
+        [Authorize(Roles = AppRoles.FlsCommunications)]
         public async Task<IActionResult> GetAllSpeakers([FromQuery] bool includeDeregistered = false)
         {
             var speakers = await _adminService.GetAllSpeakersAsync(includeDeregistered);
@@ -43,9 +47,10 @@ namespace Auth.API.Controllers.FLS
         }
 
         /// <summary>
-        /// Export all speaker data as CSV (for Melvisa and others).
+        /// Export all speaker data as CSV.
         /// </summary>
         [HttpGet("speakers/export")]
+        [Authorize(Roles = AppRoles.FlsCommunications)]
         public async Task<IActionResult> ExportSpeakers()
         {
             var csvBytes = await _adminService.ExportSpeakersAsCsvAsync();

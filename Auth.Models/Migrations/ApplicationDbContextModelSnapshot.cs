@@ -98,6 +98,118 @@ namespace Auth.Models.Migrations
                     b.ToTable("AuditEvents");
                 });
 
+            modelBuilder.Entity("Auth.Models.Entities.FLS.EmailCampaign", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Audience")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Deadline")
+                        .HasColumnType("text");
+
+                    b.Property<int>("FailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SelectedSpeakerIds")
+                        .HasColumnType("text");
+
+                    b.Property<int>("SentCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SpeakerTypeFilter")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("TotalRecipients")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.ToTable("EmailCampaigns");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.FLS.EmailCampaignRecipient", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("EmailCampaignId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderUsed")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RecipientName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("SpeakerProfileId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmailCampaignId", "Status");
+
+                    b.ToTable("EmailCampaignRecipients");
+                });
+
             modelBuilder.Entity("Auth.Models.Entities.FLS.FLSDocument", b =>
                 {
                     b.Property<int>("Id")
@@ -492,6 +604,550 @@ namespace Auth.Models.Migrations
                     b.ToTable("JournalSubmissions");
                 });
 
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.Firm", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasColumnType("text");
+
+                    b.Property<string>("City")
+                        .HasColumnType("text");
+
+                    b.Property<int>("ContactCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ContactNameConfidence")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ContactNameSource")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ContactPersonName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ContactPersonRole")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Country")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("FirmTypeId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImportBatchId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastContactedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LegalName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Phone")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Website")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FirmTypeId");
+
+                    b.HasIndex("ImportBatchId");
+
+                    b.HasIndex("LastContactedAt");
+
+                    b.HasIndex("Name");
+
+                    b.HasIndex("NormalizedEmail")
+                        .IsUnique()
+                        .HasFilter("\"NormalizedEmail\" IS NOT NULL");
+
+                    b.HasIndex("Status", "FirmTypeId");
+
+                    b.ToTable("Firms");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.FirmGroup", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColorHex")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("FirmGroups");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.FirmImportBatch", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("CreatedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ErrorReport")
+                        .HasColumnType("text");
+
+                    b.Property<int>("FailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Format")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SkippedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TotalRows")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UpdatedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("WasDryRun")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("FirmImportBatches");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.FirmType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColorHex")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("FirmGroupId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("MatchKeywords")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FirmGroupId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("FirmTypes");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingCampaign", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Audience")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BodyFirmVariant")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("BodyPersonVariant")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CustomFieldsJson")
+                        .HasColumnType("text");
+
+                    b.Property<int>("FailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FirmGroupIds")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FirmTypeIds")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PersonVariantEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ScheduleId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SelectedFirmIds")
+                        .HasColumnType("text");
+
+                    b.Property<int>("SentCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SkippedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SubjectFirmVariant")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SubjectPersonVariant")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("TemplateId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TotalRecipients")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ScheduleId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("TemplateId");
+
+                    b.ToTable("MailingCampaigns");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingCampaignRecipient", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CampaignId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<int>("FirmId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderUsed")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RenderedSubject")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ToEmail")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToName")
+                        .HasColumnType("text");
+
+                    b.Property<int>("VariantUsed")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CampaignId", "Status");
+
+                    b.HasIndex("FirmId", "Status");
+
+                    b.ToTable("MailingCampaignRecipients");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingSchedule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Audience")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("BatchSize")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Cadence")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CustomFieldsJson")
+                        .HasColumnType("text");
+
+                    b.Property<int>("DelayBetweenEmailsMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FirmGroupIds")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FirmTypeIds")
+                        .HasColumnType("text");
+
+                    b.Property<int>("IntervalMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("LastCampaignId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastRunAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("MaxTotalSends")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("NextRunAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SelectedFirmIds")
+                        .HasColumnType("text");
+
+                    b.Property<int>("SendWindowEndHourUtc")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SendWindowStartHourUtc")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("SkipAlreadyContacted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("TemplateId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TotalSent")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TemplateId");
+
+                    b.HasIndex("IsEnabled", "NextRunAt");
+
+                    b.ToTable("MailingSchedules");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BodyFirmVariant")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("BodyPersonVariant")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("FirmTypeId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PersonVariantEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SubjectFirmVariant")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SubjectPersonVariant")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FirmTypeId");
+
+                    b.HasIndex("IsActive", "FirmTypeId");
+
+                    b.ToTable("MailingTemplates");
+                });
+
             modelBuilder.Entity("Auth.Models.Entities.Question", b =>
                 {
                     b.Property<int>("QuestionId")
@@ -813,6 +1469,17 @@ namespace Auth.Models.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Auth.Models.Entities.FLS.EmailCampaignRecipient", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.FLS.EmailCampaign", "EmailCampaign")
+                        .WithMany("Recipients")
+                        .HasForeignKey("EmailCampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("EmailCampaign");
+                });
+
             modelBuilder.Entity("Auth.Models.Entities.FLS.FLSDocument", b =>
                 {
                     b.HasOne("Auth.Models.Entities.FLS.SpeakerProfile", "TargetSpeaker")
@@ -907,6 +1574,90 @@ namespace Auth.Models.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.Firm", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.Mailing.FirmType", "FirmType")
+                        .WithMany("Firms")
+                        .HasForeignKey("FirmTypeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Auth.Models.Entities.Mailing.FirmImportBatch", "ImportBatch")
+                        .WithMany("Firms")
+                        .HasForeignKey("ImportBatchId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("FirmType");
+
+                    b.Navigation("ImportBatch");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.FirmType", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.Mailing.FirmGroup", "FirmGroup")
+                        .WithMany("FirmTypes")
+                        .HasForeignKey("FirmGroupId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("FirmGroup");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingCampaign", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.Mailing.MailingSchedule", "Schedule")
+                        .WithMany("Campaigns")
+                        .HasForeignKey("ScheduleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Auth.Models.Entities.Mailing.MailingTemplate", "Template")
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Schedule");
+
+                    b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingCampaignRecipient", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.Mailing.MailingCampaign", "Campaign")
+                        .WithMany("Recipients")
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Auth.Models.Entities.Mailing.Firm", "Firm")
+                        .WithMany("CampaignRecipients")
+                        .HasForeignKey("FirmId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Campaign");
+
+                    b.Navigation("Firm");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingSchedule", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.Mailing.MailingTemplate", "Template")
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Template");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingTemplate", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.Mailing.FirmType", "FirmType")
+                        .WithMany("Templates")
+                        .HasForeignKey("FirmTypeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("FirmType");
+                });
+
             modelBuilder.Entity("Auth.Models.Entities.RefreshToken", b =>
                 {
                     b.HasOne("Auth.Models.Entities.User", "User")
@@ -980,6 +1731,11 @@ namespace Auth.Models.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Auth.Models.Entities.FLS.EmailCampaign", b =>
+                {
+                    b.Navigation("Recipients");
+                });
+
             modelBuilder.Entity("Auth.Models.Entities.FLS.FLSDocument", b =>
                 {
                     b.Navigation("Comments");
@@ -996,6 +1752,38 @@ namespace Auth.Models.Migrations
                     b.Navigation("Tasks");
 
                     b.Navigation("Uploads");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.Firm", b =>
+                {
+                    b.Navigation("CampaignRecipients");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.FirmGroup", b =>
+                {
+                    b.Navigation("FirmTypes");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.FirmImportBatch", b =>
+                {
+                    b.Navigation("Firms");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.FirmType", b =>
+                {
+                    b.Navigation("Firms");
+
+                    b.Navigation("Templates");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingCampaign", b =>
+                {
+                    b.Navigation("Recipients");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Mailing.MailingSchedule", b =>
+                {
+                    b.Navigation("Campaigns");
                 });
 
             modelBuilder.Entity("Auth.Models.Entities.User", b =>

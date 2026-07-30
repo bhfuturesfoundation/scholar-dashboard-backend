@@ -1,4 +1,6 @@
-﻿using Auth.Models.Entities;
+﻿
+using Auth.Models.Entities;
+using Auth.Models.Results;
 using Auth.Models.Request;
 using Auth.Models.Response;
 using Microsoft.AspNetCore.Identity;
@@ -11,7 +13,7 @@ namespace Auth.Services.Interfaces
         Task<CurrentUserResponse> GetCurrentUserAsync(string userId);
         Task<List<MemberSearchResponse>> SearchMembersAsync(string query, int limit, string? excludeUserId = null);
         Task<User> CreateUserAsync(RegisterRequest request);
-        Task<(bool Succeeded, User User, bool RequiresTwoFactor, bool EmailNotConfirmed)> VerifyCredentialsAsync(string email, string password);
+        Task<CredentialVerificationResult> VerifyCredentialsAsync(string email, string password);
         Task<string> GenerateEmailConfirmationTokenAsync(string userId);
         Task<bool> ConfirmEmailAsync(string userId, string token);
         Task<User> GetUserByEmailAsync(string email);

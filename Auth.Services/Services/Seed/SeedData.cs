@@ -1,5 +1,7 @@
-﻿using Auth.Models.Data;
+﻿using Auth.Models.Constants;
+using Auth.Models.Data;
 using Auth.Models.Entities;
+using Auth.Services.Interfaces.Storage;
 using Auth.Services.Services.Seed;
 using CsvHelper;
 using CsvHelper.Configuration;
@@ -35,8 +37,18 @@ namespace Auth.API.Seed
 
             logger.LogInformation("Downloading users CSV from Dropbox: {Url}", DropboxCsvUrl);
 
-            using var http = new HttpClient();
-            await using var csvStream = await http.GetStreamAsync(DropboxCsvUrl);
+            var dropbox = scope.ServiceProvider.GetRequiredService<IDropboxStorage>();
+
+            // Returns null instead of throwing when the share link's st= signature has
+            // expired or Dropbox is unreachable. Seeding is optional; booting is not.
+            var usersCsvBytes = await dropbox.TryDownloadUrlAsync(DropboxCsvUrl);
+            if (usersCsvBytes is null)
+            {
+                logger.LogWarning("Users CSV could not be downloaded — skipping user seeding for this start.");
+                return;
+            }
+
+            await using var csvStream = new MemoryStream(usersCsvBytes);
             using var reader = new StreamReader(csvStream);
             using var csv = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -137,7 +149,7 @@ namespace Auth.API.Seed
             if (createdCount > 0)
             {
                 var fileName = $"/generated-passwords-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
-                await DropboxUploader.UploadTextAsync(fileName, sb.ToString());
+                await dropbox.TryUploadTextAsync(fileName, sb.ToString());
                 logger.LogInformation("User seeding finished. Created: {Created}, Skipped: {Skipped}. Passwords uploaded to Dropbox as {File}",
                     createdCount, skippedCount, fileName);
             }
@@ -160,10 +172,15 @@ namespace Auth.API.Seed
 
             logger.LogInformation("Downloading mentors CSV from Dropbox: {Url}", DropboxMentorsCsvUrl);
 
-            using var http = new HttpClient();
-            http.Timeout = TimeSpan.FromMinutes(5);
+            var dropbox = scope.ServiceProvider.GetRequiredService<IDropboxStorage>();
 
-            var csvBytes = await http.GetByteArrayAsync(DropboxMentorsCsvUrl);
+            var csvBytes = await dropbox.TryDownloadUrlAsync(DropboxMentorsCsvUrl);
+            if (csvBytes is null)
+            {
+                logger.LogWarning("Mentors CSV could not be downloaded — skipping mentor seeding for this start.");
+                return;
+            }
+
             logger.LogInformation("Downloaded {Size} bytes from Dropbox", csvBytes.Length);
 
             using var dropboxStream = new MemoryStream(csvBytes);
@@ -171,18 +188,18 @@ namespace Auth.API.Seed
 
             if (!string.IsNullOrWhiteSpace(DropboxMentorsNewCsvUrl))
             {
-                try
-                {
-                    logger.LogInformation("Downloading additional mentors CSV from Dropbox: {Url}", DropboxMentorsNewCsvUrl);
-                    var newCsvBytes = await http.GetByteArrayAsync(DropboxMentorsNewCsvUrl);
-                    logger.LogInformation("Downloaded {Size} bytes from additional Dropbox CSV", newCsvBytes.Length);
+                logger.LogInformation("Downloading additional mentors CSV from Dropbox: {Url}", DropboxMentorsNewCsvUrl);
+                var newCsvBytes = await dropbox.TryDownloadUrlAsync(DropboxMentorsNewCsvUrl);
 
+                if (newCsvBytes is null)
+                {
+                    logger.LogWarning("Additional mentors CSV unavailable — continuing with the primary source only.");
+                }
+                else
+                {
+                    logger.LogInformation("Downloaded {Size} bytes from additional Dropbox CSV", newCsvBytes.Length);
                     using var newStream = new MemoryStream(newCsvBytes);
                     records.AddRange(ReadMentorCsv(newStream, logger, "Dropbox mentors-new.csv"));
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Failed to load additional mentors CSV from Dropbox. Skipping this source.");
                 }
             }
             else
@@ -340,7 +357,7 @@ namespace Auth.API.Seed
             if (createdMentorsCount > 0)
             {
                 var mentorPasswordsFileName = $"/generated-mentor-passwords-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
-                await DropboxUploader.UploadTextAsync(mentorPasswordsFileName, sb.ToString());
+                await dropbox.TryUploadTextAsync(mentorPasswordsFileName, sb.ToString());
                 logger.LogInformation("Mentor passwords uploaded to Dropbox as {File}", mentorPasswordsFileName);
             }
 
@@ -409,8 +426,7 @@ namespace Auth.API.Seed
         {
             var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
 
-            string[] roleNames = { "Admin", "User", "Mentor", "ProgramManager", "VolunteeringTeam", "FLSSpeaker", "FLSAdmin" };
-            foreach (var roleName in roleNames)
+            foreach (var roleName in AppRoles.All)
             {
                 if (!await roleManager.RoleExistsAsync(roleName))
                 {
@@ -454,5 +470,97 @@ namespace Auth.API.Seed
             await context.SaveChangesAsync();
         }
 
+        /// <summary>
+        /// Named staff accounts that must exist on every environment.
+        ///
+        /// Unlike the scholar/mentor seeders these are not driven by a Dropbox CSV — they
+        /// are fixed operational logins, so they live in code and are idempotent: an
+        /// existing account is left alone apart from having its role re-asserted, which
+        /// makes the seeder safe to run on every boot.
+        ///
+        /// Each password can be overridden per environment via the environment variable
+        /// named in <c>PasswordEnvVar</c>; the literal below is the fallback default.
+        /// </summary>
+        public static async Task SeedStaffAccountsAsync(IServiceProvider serviceProvider)
+        {
+            using var scope = serviceProvider.CreateScope();
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<SeedData>>();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+
+            var staffAccounts = new[]
+            {
+                new StaffAccountSeed(
+                    Email: "partnerships@bhfuturesfoundation.org",
+                    FirstName: "Partnerships",
+                    LastName: "Team",
+                    Title: "Partner Member",
+                    Role: AppRoles.PartnerMember,
+                    DefaultPassword: "Admin1234!",
+                    PasswordEnvVar: "SEED_PARTNER_MEMBER_PASSWORD")
+            };
+
+            foreach (var seed in staffAccounts)
+            {
+                var password = Environment.GetEnvironmentVariable(seed.PasswordEnvVar) ?? seed.DefaultPassword;
+                var user = await userManager.FindByEmailAsync(seed.Email);
+
+                if (user is null)
+                {
+                    user = new User
+                    {
+                        UserName = seed.Email,
+                        Email = seed.Email,
+                        FirstName = seed.FirstName,
+                        LastName = seed.LastName,
+                        Title = seed.Title,
+                        EmailConfirmed = true,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow,
+                        // These are handed out directly to staff, so no forced rotation on
+                        // first login — otherwise the documented credentials wouldn't work.
+                        MustChangePassword = false
+                    };
+
+                    var result = await userManager.CreateAsync(user, password);
+                    if (!result.Succeeded)
+                    {
+                        logger.LogError(
+                            "Failed to create staff account {Email}: {Errors}",
+                            seed.Email, string.Join(", ", result.Errors.Select(e => e.Description)));
+                        continue;
+                    }
+
+                    logger.LogInformation("Created staff account {Email} with role {Role}.", seed.Email, seed.Role);
+                }
+                else
+                {
+                    logger.LogInformation("Staff account {Email} already exists — leaving password untouched.", seed.Email);
+                }
+
+                // Re-assert the role every run: roles can be lost by a manual edit in the
+                // admin UI, and an account without its role is indistinguishable from a
+                // broken deployment.
+                if (!await userManager.IsInRoleAsync(user, seed.Role))
+                {
+                    var roleResult = await userManager.AddToRoleAsync(user, seed.Role);
+                    if (roleResult.Succeeded)
+                        logger.LogInformation("Assigned role {Role} to {Email}.", seed.Role, seed.Email);
+                    else
+                        logger.LogWarning(
+                            "Failed to assign role {Role} to {Email}: {Errors}",
+                            seed.Role, seed.Email, string.Join(", ", roleResult.Errors.Select(e => e.Description)));
+                }
+            }
+        }
+
+        private sealed record StaffAccountSeed(
+            string Email,
+            string FirstName,
+            string LastName,
+            string Title,
+            string Role,
+            string DefaultPassword,
+            string PasswordEnvVar);
     }
 }

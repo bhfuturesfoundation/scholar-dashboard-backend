@@ -1,3 +1,4 @@
+using Auth.Models.Constants;
 using Auth.Models.Enums.FLS;
 using Auth.Models.Request.FLS;
 using Auth.Models.Response;
@@ -32,7 +33,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Speaker uploads a file. Type determined by query param.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpPost]
         [RequestSizeLimit(11 * 1024 * 1024)] // 11 MB max
         public async Task<IActionResult> Upload([FromForm] IFormFile file, [FromQuery] UploadType uploadType)
@@ -55,7 +56,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Get all uploads for the current speaker.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("my")]
         public async Task<IActionResult> GetMyUploads()
         {
@@ -70,7 +71,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Get completion status for current speaker.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("my/status")]
         public async Task<IActionResult> GetMyStatus()
         {
@@ -95,7 +96,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Speaker deletes their own upload (within modification window).
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpDelete("{uploadId:int}")]
         public async Task<IActionResult> Delete(int uploadId)
         {
@@ -114,7 +115,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: verify/approve/reject a presentation upload.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPut("{uploadId:int}/verify")]
         public async Task<IActionResult> VerifyUpload(int uploadId, [FromBody] VerifyUploadRequest request)
         {
@@ -125,7 +126,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: get all uploads for a specific speaker.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpGet("speaker/{speakerProfileId:int}")]
         public async Task<IActionResult> GetForSpeaker(int speakerProfileId)
         {
@@ -136,7 +137,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: get completion status for a specific speaker.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpGet("speaker/{speakerProfileId:int}/status")]
         public async Task<IActionResult> GetStatusForSpeaker(int speakerProfileId)
         {

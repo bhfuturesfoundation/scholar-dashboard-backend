@@ -1,3 +1,4 @@
+using Auth.Models.Constants;
 using Auth.Models.Enums.FLS;
 using Auth.Models.Request.FLS;
 using Auth.Models.Response;
@@ -32,7 +33,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Get documents visible to the current speaker (global + speaker-specific).
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("my")]
         public async Task<IActionResult> GetMy([FromQuery] FLSDocumentType? documentType = null)
         {
@@ -47,7 +48,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: get all documents.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] FLSDocumentType? documentType = null)
         {
@@ -81,7 +82,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: upload a program/timeline/visual document.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPost]
         [RequestSizeLimit(20 * 1024 * 1024)]
         public async Task<IActionResult> Upload(
@@ -97,7 +98,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: delete/deactivate a document.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpDelete("{documentId:int}")]
         public async Task<IActionResult> Delete(int documentId)
         {
@@ -108,7 +109,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Speaker: add a comment/approval to a document (max 2 comments, 500 words each).
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpPost("comment")]
         public async Task<IActionResult> AddComment([FromBody] AddSpeakerCommentRequest request)
         {
@@ -123,7 +124,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: get all comments for a document.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpGet("{documentId:int}/comments")]
         public async Task<IActionResult> GetComments(int documentId)
         {
@@ -134,7 +135,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Speaker: check how many comments they have on a document.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("{documentId:int}/my-comment-count")]
         public async Task<IActionResult> GetMyCommentCount(int documentId)
         {

@@ -1,3 +1,4 @@
+using Auth.Models.Constants;
 using Auth.Models.Request.FLS;
 using Auth.Models.Response;
 using Auth.Services.Interfaces.FLS;
@@ -31,7 +32,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Get available meeting slots (unbooked, future).
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker,Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsSpeakerOrManagement)]
         [HttpGet("available")]
         public async Task<IActionResult> GetAvailable()
         {
@@ -42,7 +43,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: get all meeting slots.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
@@ -53,7 +54,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Get slots booked by the current speaker.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpGet("my")]
         public async Task<IActionResult> GetMy()
         {
@@ -68,7 +69,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Speaker books an available slot.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpPost("{slotId:int}/book")]
         public async Task<IActionResult> Book(int slotId, [FromBody] BookMeetingSlotRequest request)
         {
@@ -83,7 +84,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Speaker cancels their booking.
         /// </summary>
-        [Authorize(Roles = "FLSSpeaker")]
+        [Authorize(Roles = AppRoles.FLSSpeaker)]
         [HttpPost("{slotId:int}/cancel")]
         public async Task<IActionResult> Cancel(int slotId)
         {
@@ -98,7 +99,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: create a new meeting slot.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateMeetingSlotRequest request)
         {
@@ -115,7 +116,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: delete a meeting slot.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpDelete("{slotId:int}")]
         public async Task<IActionResult> Delete(int slotId)
         {
@@ -126,7 +127,7 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Admin: view all slots for a specific speaker.
         /// </summary>
-        [Authorize(Roles = "Admin,FLSAdmin")]
+        [Authorize(Roles = AppRoles.FlsManagement)]
         [HttpGet("speaker/{speakerProfileId:int}")]
         public async Task<IActionResult> GetForSpeaker(int speakerProfileId)
         {

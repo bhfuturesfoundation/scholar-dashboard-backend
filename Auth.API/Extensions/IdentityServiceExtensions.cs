@@ -9,6 +9,7 @@ using DotNetEnv;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 
 namespace Auth.API.Extensions
@@ -66,6 +67,20 @@ namespace Auth.API.Extensions
 
             var key = Encoding.ASCII.GetBytes(secret);
 
+            // Hoisted so the refresh path below can validate the newly minted token against
+            // exactly the same rules the middleware uses.
+            var tokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidIssuer = issuer,
+                ValidAudience = audience,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromMinutes(5)
+            };
+
             services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -75,17 +90,7 @@ namespace Auth.API.Extensions
             {
                 options.RequireHttpsMetadata = false;
                 options.SaveToken = true;
-                options.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(key),
-                    ValidateIssuer = true,
-                    ValidateAudience = true,
-                    ValidIssuer = issuer,
-                    ValidAudience = audience,
-                    ValidateLifetime = true,
-                    ClockSkew = TimeSpan.FromMinutes(5)
-                };
+                options.TokenValidationParameters = tokenValidationParameters;
 
                 options.Events = new JwtBearerEvents
                 {
@@ -122,12 +127,32 @@ namespace Auth.API.Extensions
 
                                 CookieHelper.SetRefreshTokenCookie(httpContext, response.RefreshToken);
 
-                                httpContext.Response.Headers.Add("X-New-Token", response.Token);
+                                // Indexer, not .Add — Add throws ArgumentException if the header
+                                // is already present, which turned a refresh into a 500.
+                                httpContext.Response.Headers["X-New-Token"] = response.Token;
 
-                                httpContext.Items["TokenRefreshed"] = true;
-                                httpContext.Items["NewToken"] = response.Token;
+                                // Authenticate THIS request with the token we just minted.
+                                //
+                                // Previously the refresh only stashed the token and let the
+                                // pipeline continue unauthenticated, so OnChallenge returned 401
+                                // with the token in the body and every client was expected to
+                                // notice, store it, and retry. Only apiClient did that — raw
+                                // fetch callers logged the user out, and the SignalR client
+                                // cannot participate in that handshake at all, which is why hub
+                                // negotiation failed with "Status code '401'".
+                                //
+                                // Succeeding here means the request proceeds normally: no 401, no
+                                // retry round-trip, and hubs connect. The X-New-Token header is
+                                // then just an optimisation for clients that want to rotate their
+                                // stored copy.
+                                var handler = new JwtSecurityTokenHandler();
+                                var principal = handler.ValidateToken(
+                                    response.Token, tokenValidationParameters, out _);
 
-                                logger.LogInformation("Token refreshed");
+                                context.Principal = principal;
+                                context.Success();
+
+                                logger.LogInformation("Expired token refreshed; request authenticated with the new token.");
                             }
                             catch (Exception ex)
                             {
@@ -140,25 +165,11 @@ namespace Auth.API.Extensions
                     {
                         var httpContext = context.HttpContext;
 
-                        if (httpContext.Items.ContainsKey("TokenRefreshed"))
-                        {
-                            // Return 401 with the refreshed token in the body.
-                            // The frontend detects this, stores the new token, and retries the request.
-                            // (Returning 200 here was wrong — it replaced the actual API response body.)
-                            context.HandleResponse();
-                            httpContext.Response.StatusCode = 401;
-                            httpContext.Response.ContentType = "application/json";
-                            var response = new
-                            {
-                                success = false,
-                                message = "token_refreshed",
-                                token = httpContext.Items["NewToken"] as string
-                            };
-                            await httpContext.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response));
-                            return;
-                        }
-
-                        // Only throw if we didn�t refresh
+                        // A successful refresh now authenticates the request in
+                        // OnAuthenticationFailed, so this event is only reached when the caller
+                        // genuinely has no valid session. The old "401 + token_refreshed" branch
+                        // is gone: it required every client to know the protocol, and returning
+                        // 401 for a request the server had just authorised was the bug.
                         context.HandleResponse();
                         var logger = httpContext.RequestServices.GetRequiredService<ILogger<JwtBearerEvents>>();
                         logger.LogWarning("Unauthorized access. Token may be invalid or expired.");

@@ -6,6 +6,9 @@ using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
 using Auth.Services.Interfaces.FLS;
+using Auth.Services.Interfaces.Storage;
+using Auth.Services.Services.Storage;
+using Auth.Services.Settings;
 using Auth.Services.Services;
 using Auth.Services.Services.FLS;
 using DotNetEnv;
@@ -24,6 +27,7 @@ Env.TraversePath().Load();
 builder.Services.AddPersistenceServices(builder.Configuration);
 builder.Services.AddIdentityServices(builder.Configuration);
 builder.Services.AddInfrastructureServices(builder.Configuration);
+builder.Services.AddEmailProviders(builder.Configuration);
 builder.Services.AddRabbitMQServices(builder.Configuration);
 builder.Services.AddAppRateLimiter(builder.Configuration);
 
@@ -37,7 +41,10 @@ builder.Services.AddCors(options =>
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowCredentials()
+            // Without this the browser hides X-New-Token from JavaScript, so the client can
+            // never pick up a token rotated mid-request and keeps sending the expired one.
+            .WithExposedHeaders("X-New-Token");
     });
 });
 
@@ -50,6 +57,22 @@ builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IEmailService, EmailService>();
 builder.Services.AddSingleton<IResendService, ResendEmailService>();
+
+// Dropbox. Singleton so the minted access token is cached across calls rather than
+// re-exchanged on every upload — the tokens last ~4 hours, the refresh token is permanent.
+builder.Services.Configure<DropboxOptions>(opts =>
+{
+    opts.AppKey = builder.Configuration["DROPBOX_APP_KEY"];
+    opts.AppSecret = builder.Configuration["DROPBOX_APP_SECRET"];
+    opts.RefreshToken = builder.Configuration["DROPBOX_REFRESH_TOKEN"];
+});
+builder.Services.AddHttpClient(nameof(DropboxStorage), client =>
+{
+    // Seeding downloads a few hundred KB of CSV; without a timeout a hung connection would
+    // stall startup indefinitely.
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+builder.Services.AddSingleton<IDropboxStorage, DropboxStorage>();
 
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ISkillService, SkillService>();
@@ -74,6 +97,7 @@ builder.Services.AddScoped<IFLSDocumentService, FLSDocumentService>();
 builder.Services.AddScoped<IFLSTaskService, FLSTaskService>();
 builder.Services.AddScoped<IFLSAdminService, FLSAdminService>();
 builder.Services.AddScoped<IFLSNotificationService, FLSNotificationService>();
+builder.Services.AddScoped<IFLSCampaignService, FLSCampaignService>();
 
 // Allow large file uploads (max 20 MB)
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
@@ -198,10 +222,41 @@ using (var scope = app.Services.CreateScope())
 }
 
 
-// ? Seed data after migrations
-await SeedData.SeedRolesAsync(app.Services.CreateScope().ServiceProvider);
-await SeedData.SeedQuestionsAsync(app.Services.CreateScope().ServiceProvider);
-await SeedData.SeedUsersAsync(app.Services.CreateScope().ServiceProvider);
-await SeedData.SeedMentorsAsync(app.Services.CreateScope().ServiceProvider);
+// === Seeding ===
+//
+// Seeding runs after migrations and must NEVER prevent the app from starting. It was
+// previously awaited unguarded here, and SeedUsersAsync/SeedMentorsAsync both reach out to
+// Dropbox — to download a CSV over a share link whose signature expires, and to upload
+// generated passwords using credentials that may be absent. Any of those throwing meant
+// app.Run() was never reached and the container crash-looped, taking the whole API down
+// over an optional CSV export.
+//
+// Each seeder is now isolated: one failing is logged and skipped, and the API still serves.
+{
+    using var seedScope = app.Services.CreateScope();
+    var seedLogger = seedScope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup.Seed");
+
+    var dropbox = seedScope.ServiceProvider.GetRequiredService<IDropboxStorage>();
+    if (!dropbox.IsConfigured)
+        seedLogger.LogWarning("{Hint} Password exports will be skipped; everything else runs normally.", dropbox.ConfigurationHint);
+
+    async Task RunSeederAsync(string name, Func<IServiceProvider, Task> seeder)
+    {
+        try
+        {
+            await seeder(seedScope.ServiceProvider);
+        }
+        catch (Exception ex)
+        {
+            seedLogger.LogError(ex, "Seeder {Seeder} failed. Startup continues without it.", name);
+        }
+    }
+
+    await RunSeederAsync(nameof(SeedData.SeedRolesAsync), SeedData.SeedRolesAsync);
+    await RunSeederAsync(nameof(SeedData.SeedStaffAccountsAsync), SeedData.SeedStaffAccountsAsync);
+    await RunSeederAsync(nameof(SeedData.SeedQuestionsAsync), SeedData.SeedQuestionsAsync);
+    await RunSeederAsync(nameof(SeedData.SeedUsersAsync), SeedData.SeedUsersAsync);
+    await RunSeederAsync(nameof(SeedData.SeedMentorsAsync), SeedData.SeedMentorsAsync);
+}
 
 app.Run();
