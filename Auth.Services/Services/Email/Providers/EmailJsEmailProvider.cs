@@ -39,20 +39,46 @@ namespace Auth.Services.Services.Email.Providers
         public string Key => "emailjs";
         public string DisplayName => "EmailJS (free tier)";
 
+        /// <summary>
+        /// The private key is part of being configured, not a nice-to-have.
+        ///
+        /// This previously reported configured without it, with the missing key mentioned
+        /// only in the hint. That is the wrong shape: the dispatcher routes to whatever is
+        /// "configured", so a deployment with the first three variables set would have been
+        /// chosen as the provider and then had every single send rejected by EmailJS with
+        /// "API calls are disabled for non-browser applications". Reporting it as
+        /// unconfigured means the health screen says so up front and the dispatcher picks
+        /// something that can actually deliver.
+        /// </summary>
         public bool IsConfigured =>
             !string.IsNullOrWhiteSpace(_options.ServiceId) &&
             !string.IsNullOrWhiteSpace(_options.TemplateId) &&
-            !string.IsNullOrWhiteSpace(_options.PublicKey);
+            !string.IsNullOrWhiteSpace(_options.PublicKey) &&
+            !string.IsNullOrWhiteSpace(_options.PrivateKey);
 
         public string? ConfigurationHint
         {
             get
             {
-                if (!IsConfigured)
-                    return "Set EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID and EMAILJS_PUBLIC_KEY.";
+                if (IsConfigured) return null;
+
+                var missing = new List<string>();
+                if (string.IsNullOrWhiteSpace(_options.ServiceId)) missing.Add("EMAILJS_SERVICE_ID");
+                if (string.IsNullOrWhiteSpace(_options.TemplateId)) missing.Add("EMAILJS_TEMPLATE_ID");
+                if (string.IsNullOrWhiteSpace(_options.PublicKey)) missing.Add("EMAILJS_PUBLIC_KEY");
+
                 if (string.IsNullOrWhiteSpace(_options.PrivateKey))
-                    return "EMAILJS_PRIVATE_KEY is missing — EmailJS rejects server-side sends without it.";
-                return null;
+                {
+                    missing.Add("EMAILJS_PRIVATE_KEY");
+
+                    if (missing.Count == 1)
+                    {
+                        return "EMAILJS_PRIVATE_KEY is missing. EmailJS rejects server-side sends without it — " +
+                               "also tick \"Allow EmailJS API for non-browser applications\" in Account → Security.";
+                    }
+                }
+
+                return $"Missing {string.Join(", ", missing)}.";
             }
         }
 

@@ -8,6 +8,25 @@ namespace Auth.API.Extensions
     {
         public static IServiceCollection AddRabbitMQServices(this IServiceCollection services, ConfigurationManager configuration)
         {
+            // RABBITMQ_ENABLED existed in configuration but was read nowhere, so the app
+            // connected to RABBITMQ_HOST regardless. In production that host is "localhost"
+            // with no broker, so every startup attempted a connection, failed, and wrote
+            // several pages of stack trace to the deploy log — once per consumed queue.
+            // That noise is what a real startup failure has to compete with.
+            var enabled = (Env.GetString("RABBITMQ_ENABLED") ?? "true")
+                .Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+
+            if (!enabled)
+            {
+                var logger = LoggerFactory.Create(b => b.AddConsole())
+                    .CreateLogger("RabbitMQServiceExtensions");
+                logger.LogInformation(
+                    "RABBITMQ_ENABLED is false — using the no-op message broker. Queued email is not delivered.");
+
+                services.AddSingleton<IMessageBrokerService, NoOpMessageBrokerService>();
+                return services;
+            }
+
             try
             {
                 var rabbitMqHost = Env.GetString("RABBITMQ_HOST") ?? "localhost";

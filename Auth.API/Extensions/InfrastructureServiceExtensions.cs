@@ -1,4 +1,4 @@
-﻿using Auth.Services.Settings;
+using Auth.Services.Settings;
 using DotNetEnv;
 using Microsoft.OpenApi.Models;
 
@@ -17,6 +17,10 @@ namespace Auth.API.Extensions
             var smtpFromEmail = Env.GetString("SMTP_FROM_EMAIL");
             var smtpFromName = Env.GetString("SMTP_FROM_NAME") ?? "Auth App";
 
+            // Absent means enabled, so deployments predating this variable are unaffected.
+            var smtpEnabled = !string.Equals(Env.GetString("SMTP_ENABLED")?.Trim(), "false",
+                StringComparison.OrdinalIgnoreCase);
+
             services.Configure<SMTPSettings>(opts =>
             {
                 opts.Host = smtpHost;
@@ -26,6 +30,7 @@ namespace Auth.API.Extensions
                 opts.EnableSsl = smtpEnableSsl;
                 opts.FromEmail = smtpFromEmail;
                 opts.FromName = smtpFromName;
+                opts.Enabled = smtpEnabled;
             });
 
             services.AddSwaggerGen(c =>
