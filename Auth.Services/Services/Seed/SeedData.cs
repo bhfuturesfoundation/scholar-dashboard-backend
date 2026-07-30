@@ -1,6 +1,7 @@
 ﻿using Auth.Models.Constants;
 using Auth.Models.Data;
 using Auth.Models.Entities;
+using Auth.Services.Interfaces.Storage;
 using Auth.Services.Services.Seed;
 using CsvHelper;
 using CsvHelper.Configuration;
@@ -36,8 +37,18 @@ namespace Auth.API.Seed
 
             logger.LogInformation("Downloading users CSV from Dropbox: {Url}", DropboxCsvUrl);
 
-            using var http = new HttpClient();
-            await using var csvStream = await http.GetStreamAsync(DropboxCsvUrl);
+            var dropbox = scope.ServiceProvider.GetRequiredService<IDropboxStorage>();
+
+            // Returns null instead of throwing when the share link's st= signature has
+            // expired or Dropbox is unreachable. Seeding is optional; booting is not.
+            var usersCsvBytes = await dropbox.TryDownloadUrlAsync(DropboxCsvUrl);
+            if (usersCsvBytes is null)
+            {
+                logger.LogWarning("Users CSV could not be downloaded — skipping user seeding for this start.");
+                return;
+            }
+
+            await using var csvStream = new MemoryStream(usersCsvBytes);
             using var reader = new StreamReader(csvStream);
             using var csv = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -138,7 +149,7 @@ namespace Auth.API.Seed
             if (createdCount > 0)
             {
                 var fileName = $"/generated-passwords-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
-                await DropboxUploader.UploadTextAsync(fileName, sb.ToString());
+                await dropbox.TryUploadTextAsync(fileName, sb.ToString());
                 logger.LogInformation("User seeding finished. Created: {Created}, Skipped: {Skipped}. Passwords uploaded to Dropbox as {File}",
                     createdCount, skippedCount, fileName);
             }
@@ -161,10 +172,15 @@ namespace Auth.API.Seed
 
             logger.LogInformation("Downloading mentors CSV from Dropbox: {Url}", DropboxMentorsCsvUrl);
 
-            using var http = new HttpClient();
-            http.Timeout = TimeSpan.FromMinutes(5);
+            var dropbox = scope.ServiceProvider.GetRequiredService<IDropboxStorage>();
 
-            var csvBytes = await http.GetByteArrayAsync(DropboxMentorsCsvUrl);
+            var csvBytes = await dropbox.TryDownloadUrlAsync(DropboxMentorsCsvUrl);
+            if (csvBytes is null)
+            {
+                logger.LogWarning("Mentors CSV could not be downloaded — skipping mentor seeding for this start.");
+                return;
+            }
+
             logger.LogInformation("Downloaded {Size} bytes from Dropbox", csvBytes.Length);
 
             using var dropboxStream = new MemoryStream(csvBytes);
@@ -172,18 +188,18 @@ namespace Auth.API.Seed
 
             if (!string.IsNullOrWhiteSpace(DropboxMentorsNewCsvUrl))
             {
-                try
-                {
-                    logger.LogInformation("Downloading additional mentors CSV from Dropbox: {Url}", DropboxMentorsNewCsvUrl);
-                    var newCsvBytes = await http.GetByteArrayAsync(DropboxMentorsNewCsvUrl);
-                    logger.LogInformation("Downloaded {Size} bytes from additional Dropbox CSV", newCsvBytes.Length);
+                logger.LogInformation("Downloading additional mentors CSV from Dropbox: {Url}", DropboxMentorsNewCsvUrl);
+                var newCsvBytes = await dropbox.TryDownloadUrlAsync(DropboxMentorsNewCsvUrl);
 
+                if (newCsvBytes is null)
+                {
+                    logger.LogWarning("Additional mentors CSV unavailable — continuing with the primary source only.");
+                }
+                else
+                {
+                    logger.LogInformation("Downloaded {Size} bytes from additional Dropbox CSV", newCsvBytes.Length);
                     using var newStream = new MemoryStream(newCsvBytes);
                     records.AddRange(ReadMentorCsv(newStream, logger, "Dropbox mentors-new.csv"));
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Failed to load additional mentors CSV from Dropbox. Skipping this source.");
                 }
             }
             else
@@ -341,7 +357,7 @@ namespace Auth.API.Seed
             if (createdMentorsCount > 0)
             {
                 var mentorPasswordsFileName = $"/generated-mentor-passwords-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
-                await DropboxUploader.UploadTextAsync(mentorPasswordsFileName, sb.ToString());
+                await dropbox.TryUploadTextAsync(mentorPasswordsFileName, sb.ToString());
                 logger.LogInformation("Mentor passwords uploaded to Dropbox as {File}", mentorPasswordsFileName);
             }
 

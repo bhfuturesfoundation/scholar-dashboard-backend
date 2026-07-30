@@ -1,5 +1,6 @@
 using Auth.Models.Entities;
 using Auth.Models.Entities.FLS;
+using Auth.Models.Entities.Mailing;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +37,17 @@ namespace Auth.Models.Data
         public DbSet<SpeakerNotification> SpeakerNotifications { get; set; }
         public DbSet<EmailCampaign> EmailCampaigns { get; set; }
         public DbSet<EmailCampaignRecipient> EmailCampaignRecipients { get; set; }
+
+        // Partnerships mailing — firm outreach. Independent of FLS: these records are
+        // organisations the foundation contacts, not application users.
+        public DbSet<FirmGroup> FirmGroups { get; set; }
+        public DbSet<FirmType> FirmTypes { get; set; }
+        public DbSet<Firm> Firms { get; set; }
+        public DbSet<FirmImportBatch> FirmImportBatches { get; set; }
+        public DbSet<MailingTemplate> MailingTemplates { get; set; }
+        public DbSet<MailingCampaign> MailingCampaigns { get; set; }
+        public DbSet<MailingCampaignRecipient> MailingCampaignRecipients { get; set; }
+        public DbSet<MailingSchedule> MailingSchedules { get; set; }
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -176,6 +188,136 @@ namespace Auth.Models.Data
             // Campaign detail filters recipients by delivery status ("show me the failures").
             builder.Entity<EmailCampaignRecipient>()
                 .HasIndex(r => new { r.EmailCampaignId, r.Status });
+
+            ConfigureMailing(builder);
+        }
+
+        /// <summary>
+        /// Partnerships mailing schema. Split into its own method because the FLS block above
+        /// is already long and these two subsystems have nothing to do with each other.
+        /// </summary>
+        private static void ConfigureMailing(ModelBuilder builder)
+        {
+            // ── Taxonomy ──────────────────────────────────────────────────────────
+
+            builder.Entity<FirmGroup>()
+                .HasIndex(g => g.Slug)
+                .IsUnique();
+
+            builder.Entity<FirmType>()
+                .HasIndex(t => t.Slug)
+                .IsUnique();
+
+            // Deleting a group leaves its types in place, ungrouped, rather than cascading
+            // away a chunk of the directory's classification.
+            builder.Entity<FirmType>()
+                .HasOne(t => t.FirmGroup)
+                .WithMany(g => g.FirmTypes)
+                .HasForeignKey(t => t.FirmGroupId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── Firms ─────────────────────────────────────────────────────────────
+
+            // The unique index is what actually prevents duplicate firms on re-import.
+            // Filtered so the many firms imported without an address don't collide on NULL —
+            // Postgres treats NULLs as distinct, but being explicit documents the intent.
+            builder.Entity<Firm>()
+                .HasIndex(f => f.NormalizedEmail)
+                .IsUnique()
+                .HasFilter("\"NormalizedEmail\" IS NOT NULL");
+
+            // Retyping a firm shouldn't be blocked by, or cascade from, deleting a type.
+            builder.Entity<Firm>()
+                .HasOne(f => f.FirmType)
+                .WithMany(t => t.Firms)
+                .HasForeignKey(f => f.FirmTypeId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Deleting an import batch record must not delete the firms it brought in.
+            builder.Entity<Firm>()
+                .HasOne(f => f.ImportBatch)
+                .WithMany(b => b.Firms)
+                .HasForeignKey(f => f.ImportBatchId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // The directory's default view is "contactable firms of type X, by name".
+            builder.Entity<Firm>()
+                .HasIndex(f => new { f.Status, f.FirmTypeId });
+
+            builder.Entity<Firm>()
+                .HasIndex(f => f.Name);
+
+            // Drives the "never contacted" audience and frequency checks.
+            builder.Entity<Firm>()
+                .HasIndex(f => f.LastContactedAt);
+
+            // ── Templates ─────────────────────────────────────────────────────────
+
+            builder.Entity<MailingTemplate>()
+                .HasOne(t => t.FirmType)
+                .WithMany(ft => ft.Templates)
+                .HasForeignKey(t => t.FirmTypeId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<MailingTemplate>()
+                .HasIndex(t => new { t.IsActive, t.FirmTypeId });
+
+            // ── Campaigns ─────────────────────────────────────────────────────────
+
+            // A campaign is history. Deleting the template it came from must not erase the
+            // record of what was sent, hence SetNull rather than Cascade.
+            builder.Entity<MailingCampaign>()
+                .HasOne(c => c.Template)
+                .WithMany()
+                .HasForeignKey(c => c.TemplateId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<MailingCampaign>()
+                .HasOne(c => c.Schedule)
+                .WithMany(s => s.Campaigns)
+                .HasForeignKey(c => c.ScheduleId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<MailingCampaign>()
+                .HasIndex(c => c.CreatedAt);
+
+            builder.Entity<MailingCampaign>()
+                .HasIndex(c => c.Status);
+
+            builder.Entity<MailingCampaignRecipient>()
+                .HasOne(r => r.Campaign)
+                .WithMany(c => c.Recipients)
+                .HasForeignKey(r => r.CampaignId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict, not Cascade: deleting a firm must not silently shred the delivery
+            // history that proves what was sent to it. The service soft-deletes instead.
+            builder.Entity<MailingCampaignRecipient>()
+                .HasOne(r => r.Firm)
+                .WithMany(f => f.CampaignRecipients)
+                .HasForeignKey(r => r.FirmId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<MailingCampaignRecipient>()
+                .HasIndex(r => new { r.CampaignId, r.Status });
+
+            // Powers SkipAlreadyContacted: "has this firm been mailed by this schedule?"
+            builder.Entity<MailingCampaignRecipient>()
+                .HasIndex(r => new { r.FirmId, r.Status });
+
+            // ── Schedules ─────────────────────────────────────────────────────────
+
+            // Restrict: a template backing a live schedule can't be deleted out from under
+            // it. The UI surfaces "used by N schedules" instead of failing at the database.
+            builder.Entity<MailingSchedule>()
+                .HasOne(s => s.Template)
+                .WithMany()
+                .HasForeignKey(s => s.TemplateId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // The scheduler polls "enabled and due" on every tick — this is the hot path.
+            builder.Entity<MailingSchedule>()
+                .HasIndex(s => new { s.IsEnabled, s.NextRunAt });
         }
     }
 }
