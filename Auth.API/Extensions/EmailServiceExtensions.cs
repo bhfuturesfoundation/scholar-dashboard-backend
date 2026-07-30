@@ -83,6 +83,11 @@ namespace Auth.API.Extensions
             services.AddSingleton<IEmailProvider, LogEmailProvider>();
 
             services.AddSingleton<IEmailTemplateRenderer, EmailTemplateRenderer>();
+
+            // Scoped: it reads the DbContext. The dispatcher is a singleton and resolves it
+            // per send through IServiceScopeFactory.
+            services.AddScoped<IEmailSuppressionService, EmailSuppressionService>();
+
             services.AddSingleton<IEmailDispatcher, EmailDispatcher>();
 
             return services;

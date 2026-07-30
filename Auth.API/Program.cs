@@ -6,7 +6,9 @@ using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
 using Auth.Services.Interfaces.FLS;
+using Auth.Services.Interfaces.Operations;
 using Auth.Services.Interfaces.Storage;
+using Auth.Services.Services.Operations;
 using Auth.Services.Services.Storage;
 using Auth.Services.Settings;
 using Auth.Services.Services;
@@ -84,6 +86,7 @@ builder.Services.AddScoped<IVolunteeringService, VolunteeringService>();
 // Gamification & Audit
 builder.Services.AddScoped<IGameScoreService, GameScoreService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IOperationsService, OperationsService>();
 
 // Health checks
 builder.Services.AddHealthChecks()

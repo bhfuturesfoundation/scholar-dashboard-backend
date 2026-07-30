@@ -44,6 +44,24 @@ namespace Auth.Models.Constants
         /// <summary>May read scholar journals belonging to other users.</summary>
         public const string JournalOversight = Admin + "," + ProgramManager;
 
+        /// <summary>
+        /// May view deploy health, environment-variable status and export scholars.
+        /// Read-only operational visibility — deliberately does NOT include database backups.
+        /// </summary>
+        public const string Operations = Admin + "," + ProgramManager;
+
+        /// <summary>
+        /// May create and download database backups.
+        ///
+        /// Admin only, and deliberately narrower than <see cref="Operations"/>. A backup is a
+        /// copy of every scholar's journal entries — personal reflections written in
+        /// confidence — plus the full user table. That is the most sensitive artefact the
+        /// system can produce, and one compromised account holding this permission is a
+        /// complete data breach rather than a nuisance. Program managers get scholar exports,
+        /// which contain only the fields they already see in the UI.
+        /// </summary>
+        public const string BackupManagement = Admin;
+
         /// <summary>Any account that belongs to the FLS portal rather than the scholar app.</summary>
         public const string FlsPortal = Admin + "," + FLSAdmin + "," + PartnerMember + "," + FLSSpeaker;
 

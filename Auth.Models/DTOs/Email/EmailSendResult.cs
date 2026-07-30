@@ -24,10 +24,28 @@ namespace Auth.Models.DTOs.Email
         /// </summary>
         public bool IsTransient { get; init; }
 
+        /// <summary>
+        /// True when the send was deliberately skipped because the recipient is suppressed
+        /// (deactivated account, unsubscribed firm, bounce). Distinct from a failure: nothing
+        /// went wrong, so campaign stats must report this as skipped rather than failed and
+        /// retry must not pick it up.
+        /// </summary>
+        public bool WasSuppressed { get; init; }
+
         public static EmailSendResult Ok(string provider, string? messageId = null) =>
             new() { Success = true, Provider = provider, MessageId = messageId };
 
         public static EmailSendResult Fail(string provider, string error, bool isTransient = true) =>
             new() { Success = false, Provider = provider, Error = error, IsTransient = isTransient };
+
+        public static EmailSendResult Suppressed(string reason, string? explanation) =>
+            new()
+            {
+                Success = false,
+                WasSuppressed = true,
+                IsTransient = false,
+                Provider = "suppressed",
+                Error = explanation ?? reason
+            };
     }
 }

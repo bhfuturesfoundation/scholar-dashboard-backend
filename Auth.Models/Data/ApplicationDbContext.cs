@@ -1,4 +1,5 @@
 using Auth.Models.Entities;
+using Auth.Models.Entities.Email;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Mailing;
 using Microsoft.AspNetCore.Identity;
@@ -37,6 +38,9 @@ namespace Auth.Models.Data
         public DbSet<SpeakerNotification> SpeakerNotifications { get; set; }
         public DbSet<EmailCampaign> EmailCampaigns { get; set; }
         public DbSet<EmailCampaignRecipient> EmailCampaignRecipients { get; set; }
+
+        /// <summary>Addresses that must never be mailed. See IEmailSuppressionService.</summary>
+        public DbSet<EmailSuppression> EmailSuppressions { get; set; }
 
         // Partnerships mailing — firm outreach. Independent of FLS: these records are
         // organisations the foundation contacts, not application users.
@@ -188,6 +192,12 @@ namespace Auth.Models.Data
             // Campaign detail filters recipients by delivery status ("show me the failures").
             builder.Entity<EmailCampaignRecipient>()
                 .HasIndex(r => new { r.EmailCampaignId, r.Status });
+
+            // Every send looks this table up by address, so the index is the difference
+            // between a suppression check and a sequential scan per recipient.
+            builder.Entity<EmailSuppression>()
+                .HasIndex(s => s.NormalizedEmail)
+                .IsUnique();
 
             ConfigureMailing(builder);
         }

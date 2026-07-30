@@ -1,6 +1,7 @@
 using Auth.Models.DTOs.Email;
 using Auth.Services.Interfaces.Email;
 using Auth.Services.Settings;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -17,15 +18,20 @@ namespace Auth.Services.Services.Email
     {
         private readonly IReadOnlyList<IEmailProvider> _providers;
         private readonly EmailOptions _options;
+        private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<EmailDispatcher> _logger;
 
         public EmailDispatcher(
             IEnumerable<IEmailProvider> providers,
             IOptions<EmailOptions> options,
+            IServiceScopeFactory scopeFactory,
             ILogger<EmailDispatcher> logger)
         {
             _providers = providers.ToList();
             _options = options.Value;
+            // The dispatcher is a singleton but the suppression service needs a scoped
+            // DbContext, so resolve one per send rather than capturing a disposed context.
+            _scopeFactory = scopeFactory;
             _logger = logger;
         }
 
@@ -54,6 +60,21 @@ namespace Auth.Services.Services.Email
 
             if (string.IsNullOrWhiteSpace(email.ToEmail))
                 return EmailSendResult.Fail("none", "Recipient address is empty.", isTransient: false);
+
+            // Final gate before anything leaves the system. Deliberately here rather than in
+            // each audience query: there are many of those, they are written by hand, and one
+            // of them forgetting to exclude deactivated accounts is a matter of time. This
+            // makes that mistake harmless instead of sending mail to someone we deactivated.
+            var suppression = await CheckSuppressionAsync(email.ToEmail, cancellationToken);
+            if (suppression.IsSuppressed)
+            {
+                _logger.LogInformation(
+                    "Suppressed email to {Email}: {Reason}", email.ToEmail, suppression.Explanation);
+
+                // Not a failure — the system worked as intended. Reported as a distinct
+                // outcome so campaign stats show "skipped", not "failed".
+                return EmailSendResult.Suppressed(suppression.Reason.ToString(), suppression.Explanation);
+            }
 
             ApplyDefaults(email);
 
@@ -88,6 +109,27 @@ namespace Auth.Services.Services.Email
             }
 
             return last ?? EmailSendResult.Fail("none", "No provider attempted the send.", isTransient: false);
+        }
+
+        /// <summary>
+        /// Runs the suppression check in its own scope. Fails OPEN on an unexpected error:
+        /// a database blip should not silently stop every password reset and 2FA code in the
+        /// system. The cost of that choice is bounded — audience queries filter too, so this
+        /// backstop only matters when one of them has a bug.
+        /// </summary>
+        private async Task<SuppressionCheck> CheckSuppressionAsync(string email, CancellationToken cancellationToken)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var suppression = scope.ServiceProvider.GetRequiredService<IEmailSuppressionService>();
+                return await suppression.CheckAsync(email, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Suppression check failed for {Email}; allowing the send.", email);
+                return SuppressionCheck.Allowed;
+            }
         }
 
         private void ApplyDefaults(OutboundEmail email)

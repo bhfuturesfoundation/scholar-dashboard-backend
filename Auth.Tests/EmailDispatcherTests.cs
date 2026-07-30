@@ -2,6 +2,7 @@ using Auth.Models.DTOs.Email;
 using Auth.Services.Interfaces.Email;
 using Auth.Services.Services.Email;
 using Auth.Services.Settings;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -43,7 +44,47 @@ public class EmailDispatcherTests
     }
 
     private static EmailDispatcher Build(EmailOptions options, params IEmailProvider[] providers) =>
-        new(providers, Options.Create(options), NullLogger<EmailDispatcher>.Instance);
+        Build(options, SuppressionCheck.Allowed, providers);
+
+    private static EmailDispatcher Build(
+        EmailOptions options, SuppressionCheck suppression, params IEmailProvider[] providers) =>
+        new(providers,
+            Options.Create(options),
+            new StubScopeFactory(new StubSuppressionService(suppression)),
+            NullLogger<EmailDispatcher>.Instance);
+
+    /// <summary>Returns a fixed verdict for every address.</summary>
+    private sealed class StubSuppressionService : IEmailSuppressionService
+    {
+        private readonly SuppressionCheck _verdict;
+
+        public StubSuppressionService(SuppressionCheck verdict) => _verdict = verdict;
+
+        public Task<SuppressionCheck> CheckAsync(string? email, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_verdict);
+
+        public Task<IReadOnlyDictionary<string, SuppressionCheck>> CheckManyAsync(
+            IEnumerable<string> emails, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, SuppressionCheck>>(
+                new Dictionary<string, SuppressionCheck>());
+    }
+
+    /// <summary>
+    /// Minimal scope factory handing the dispatcher a stub suppression service, standing in
+    /// for the scoped DbContext-backed one it resolves in production.
+    /// </summary>
+    private sealed class StubScopeFactory : IServiceScopeFactory, IServiceScope, IServiceProvider
+    {
+        private readonly IEmailSuppressionService _suppression;
+
+        public StubScopeFactory(IEmailSuppressionService suppression) => _suppression = suppression;
+
+        public IServiceScope CreateScope() => this;
+        public IServiceProvider ServiceProvider => this;
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(IEmailSuppressionService) ? _suppression : null;
+        public void Dispose() { }
+    }
 
     private static OutboundEmail Message() => new()
     {
@@ -282,5 +323,63 @@ public class EmailDispatcherTests
             new FakeProvider("gmass", isConfigured: false));
 
         Assert.Equal(2, dispatcher.GetProviders().Count);
+    }
+
+    // ── Suppression ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task SuppressedRecipient_NeverReachesAProvider()
+    {
+        // The point of enforcing suppression in the dispatcher: even with a perfectly
+        // healthy provider and an audience query that forgot to filter deactivated
+        // accounts, nothing goes out.
+        var provider = new FakeProvider("smtp");
+
+        var dispatcher = Build(
+            new EmailOptions { DefaultProvider = "smtp" },
+            SuppressionCheck.Block(SuppressionReason.UserInactive, "The account is deactivated."),
+            provider);
+
+        var result = await dispatcher.SendAsync(Message());
+
+        Assert.Empty(provider.Sent);
+        Assert.False(result.Success);
+        Assert.True(result.WasSuppressed);
+    }
+
+    [Fact]
+    public async Task SuppressedRecipient_IsReportedAsSkippedNotFailed()
+    {
+        // Campaign stats must not show a suppressed recipient as a failure: nothing went
+        // wrong, and retry must not pick it up and try again.
+        var dispatcher = Build(
+            new EmailOptions { DefaultProvider = "smtp" },
+            SuppressionCheck.Block(SuppressionReason.FirmUnsubscribed, "The firm unsubscribed."),
+            new FakeProvider("smtp"));
+
+        var result = await dispatcher.SendAsync(Message());
+
+        Assert.True(result.WasSuppressed);
+        Assert.False(result.IsTransient);
+        Assert.Contains("unsubscribed", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SuppressionDoesNotTriggerProviderFallback()
+    {
+        // A suppressed recipient must not cascade down the fallback chain trying every
+        // vendor in turn — that would be N pointless attempts per blocked address.
+        var primary = new FakeProvider("smtp");
+        var secondary = new FakeProvider("gmass");
+
+        var dispatcher = Build(
+            new EmailOptions { DefaultProvider = "smtp", EnableFallback = true },
+            SuppressionCheck.Block(SuppressionReason.UserInactive, "Deactivated."),
+            primary, secondary);
+
+        await dispatcher.SendAsync(Message());
+
+        Assert.Empty(primary.Sent);
+        Assert.Empty(secondary.Sent);
     }
 }
