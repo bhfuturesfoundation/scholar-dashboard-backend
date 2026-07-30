@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Identity;
+using Auth.Models.Entities.Scholars;
+using Auth.Models.Enums.Scholars;
+using Microsoft.AspNetCore.Identity;
 
 namespace Auth.Models.Entities
 {
@@ -20,5 +22,21 @@ namespace Auth.Models.Entities
         public bool IsActive { get; set; }
         public bool MustChangePassword { get; set; }
         public bool AllowMentorJournalAccess { get; set; } = false;
+
+        // ── Scholar lifecycle ─────────────────────────────────────────────────
+
+        /// <summary>
+        /// Typed programme status. Drives promotion and audience logic; <see cref="Title"/>
+        /// remains the free-text label shown in the UI and kept in sync on every transition.
+        /// </summary>
+        public ScholarStatus ScholarStatus { get; set; } = ScholarStatus.Unassigned;
+
+        /// <summary>
+        /// Intake cohort. Kept for life, including after becoming alumni — "which generation
+        /// was this alumnus from" is unanswerable if it is inferred from a status that
+        /// changes every year. Null for staff accounts and un-backfilled records.
+        /// </summary>
+        public int? GenerationId { get; set; }
+        public ScholarGeneration? Generation { get; set; }
     }
 }

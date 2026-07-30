@@ -3,6 +3,7 @@ using Auth.Models.Entities.Email;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Mailing;
 using Auth.Models.Entities.Operations;
+using Auth.Models.Entities.Scholars;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -45,6 +46,11 @@ namespace Auth.Models.Data
 
         /// <summary>Audit trail of database backups. See IBackupService.</summary>
         public DbSet<BackupRecord> BackupRecords { get; set; }
+
+        // Scholar lifecycle
+        public DbSet<ScholarGeneration> ScholarGenerations { get; set; }
+        public DbSet<PromotionBatch> PromotionBatches { get; set; }
+        public DbSet<PromotionBatchEntry> PromotionBatchEntries { get; set; }
 
         // Partnerships mailing — firm outreach. Independent of FLS: these records are
         // organisations the foundation contacts, not application users.
@@ -203,7 +209,48 @@ namespace Auth.Models.Data
                 .HasIndex(s => s.NormalizedEmail)
                 .IsUnique();
 
+            ConfigureScholarLifecycle(builder);
             ConfigureMailing(builder);
+        }
+
+        /// <summary>Generations, cohort status and revertable promotion batches.</summary>
+        private static void ConfigureScholarLifecycle(ModelBuilder builder)
+        {
+            builder.Entity<ScholarGeneration>()
+                .HasIndex(g => g.Year)
+                .IsUnique();
+
+            // SetNull, not Cascade: deleting a generation must never delete the scholars in
+            // it. They become ungrouped and the UI surfaces them for reassignment.
+            builder.Entity<User>()
+                .HasOne(u => u.Generation)
+                .WithMany(g => g.Scholars)
+                .HasForeignKey(u => u.GenerationId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // The scholar list filters by status and cohort on every load.
+            builder.Entity<User>()
+                .HasIndex(u => new { u.ScholarStatus, u.GenerationId });
+
+            builder.Entity<PromotionBatch>()
+                .HasOne(b => b.Generation)
+                .WithMany()
+                .HasForeignKey(b => b.GenerationId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Entries are meaningless without their batch, and the batch is the unit a revert
+            // operates on — so cascading here is correct.
+            builder.Entity<PromotionBatchEntry>()
+                .HasOne(e => e.PromotionBatch)
+                .WithMany(b => b.Entries)
+                .HasForeignKey(e => e.PromotionBatchId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<PromotionBatchEntry>()
+                .HasIndex(e => e.PromotionBatchId);
+
+            builder.Entity<PromotionBatch>()
+                .HasIndex(b => b.PerformedAt);
         }
 
         /// <summary>

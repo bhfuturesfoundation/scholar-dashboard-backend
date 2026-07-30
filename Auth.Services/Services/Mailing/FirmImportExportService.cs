@@ -73,7 +73,7 @@ namespace Auth.Services.Services.Mailing
             var isExcel = fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
                 || fileName.EndsWith(".xlsm", StringComparison.OrdinalIgnoreCase);
 
-            var (headers, rows) = isExcel ? ReadExcel(fileStream) : ReadCsv(fileStream);
+            var (headers, rows) = SpreadsheetReader.Read(fileStream, fileName);
 
             var result = new FirmImportResultDto
             {
@@ -83,7 +83,7 @@ namespace Auth.Services.Services.Mailing
                 DetectedColumns = headers
             };
 
-            var map = BuildColumnMap(headers);
+            var map = SpreadsheetReader.BuildColumnMap(headers, ColumnAliases);
 
             if (!map.ContainsKey("name") && !map.ContainsKey("email"))
             {
@@ -136,8 +136,8 @@ namespace Auth.Services.Services.Mailing
                 var row = rows[i];
                 var rowNumber = i + 2; // +1 for zero-index, +1 for the header line
 
-                var name = Value(row, map, "name");
-                var email = Value(row, map, "email");
+                var name = SpreadsheetReader.Value(row, map, "name");
+                var email = SpreadsheetReader.Value(row, map, "email");
                 var normalizedEmail = TextNormalizer.NormalizeEmail(email);
 
                 if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(normalizedEmail))
@@ -189,17 +189,17 @@ namespace Auth.Services.Services.Mailing
                 };
 
                 firm.Name = name.Trim();
-                firm.LegalName = Value(row, map, "legalname")?.Trim() ?? firm.LegalName;
+                firm.LegalName = SpreadsheetReader.Value(row, map, "legalname")?.Trim() ?? firm.LegalName;
                 firm.Email = email?.Trim() ?? firm.Email;
                 firm.NormalizedEmail = normalizedEmail ?? firm.NormalizedEmail;
-                firm.Website = Value(row, map, "website")?.Trim() ?? firm.Website;
-                firm.Phone = Value(row, map, "phone")?.Trim() ?? firm.Phone;
-                firm.Address = Value(row, map, "address")?.Trim() ?? firm.Address;
-                firm.City = Value(row, map, "city")?.Trim() ?? firm.City;
-                firm.Country = Value(row, map, "country")?.Trim() ?? firm.Country;
-                firm.ContactPersonRole = Value(row, map, "contactrole")?.Trim() ?? firm.ContactPersonRole;
+                firm.Website = SpreadsheetReader.Value(row, map, "website")?.Trim() ?? firm.Website;
+                firm.Phone = SpreadsheetReader.Value(row, map, "phone")?.Trim() ?? firm.Phone;
+                firm.Address = SpreadsheetReader.Value(row, map, "address")?.Trim() ?? firm.Address;
+                firm.City = SpreadsheetReader.Value(row, map, "city")?.Trim() ?? firm.City;
+                firm.Country = SpreadsheetReader.Value(row, map, "country")?.Trim() ?? firm.Country;
+                firm.ContactPersonRole = SpreadsheetReader.Value(row, map, "contactrole")?.Trim() ?? firm.ContactPersonRole;
 
-                var notes = Value(row, map, "notes");
+                var notes = SpreadsheetReader.Value(row, map, "notes");
                 if (!string.IsNullOrWhiteSpace(notes)) firm.Notes = notes.Trim();
 
                 // A firm with no usable address can't be mailed. Flagging it as Incomplete
@@ -208,7 +208,7 @@ namespace Auth.Services.Services.Mailing
                     firm.Status = FirmStatus.Incomplete;
 
                 // ── Firm type ─────────────────────────────────────────────────
-                var typeText = Value(row, map, "type");
+                var typeText = SpreadsheetReader.Value(row, map, "type");
                 FirmType? resolvedType = null;
 
                 if (!string.IsNullOrWhiteSpace(typeText))
@@ -238,7 +238,7 @@ namespace Auth.Services.Services.Mailing
                 }
 
                 // ── Contact name ──────────────────────────────────────────────
-                var providedContact = Value(row, map, "contactname");
+                var providedContact = SpreadsheetReader.Value(row, map, "contactname");
 
                 if (!string.IsNullOrWhiteSpace(providedContact))
                 {
@@ -392,176 +392,7 @@ namespace Auth.Services.Services.Mailing
             }
         };
 
-        // ── File readers ──────────────────────────────────────────────────────
-
-        private static (List<string> Headers, List<string?[]> Rows) ReadExcel(Stream stream)
-        {
-            using var workbook = new XLWorkbook(stream);
-            var sheet = workbook.Worksheets.First();
-
-            var headers = new List<string>();
-            var rows = new List<string?[]>();
-
-            var range = sheet.RangeUsed();
-            if (range is null) return (headers, rows);
-
-            var firstRow = range.FirstRow();
-            foreach (var cell in firstRow.Cells())
-                headers.Add(cell.GetString().Trim());
-
-            foreach (var row in range.RowsUsed().Skip(1))
-            {
-                var values = new string?[headers.Count];
-
-                for (var c = 0; c < headers.Count; c++)
-                {
-                    var text = row.Cell(c + 1).GetString();
-                    values[c] = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
-                }
-
-                if (values.All(string.IsNullOrWhiteSpace)) continue;
-                rows.Add(values);
-            }
-
-            return (headers, rows);
-        }
-
-        /// <summary>
-        /// Minimal RFC 4180 reader: quoted fields, embedded commas, doubled quotes and
-        /// newlines inside quotes. Written by hand rather than pulled from CsvHelper because
-        /// the input has unknown headers and ragged rows, which the mapping-based API fights.
-        /// </summary>
-        private static (List<string> Headers, List<string?[]> Rows) ReadCsv(Stream stream)
-        {
-            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-            var content = reader.ReadToEnd();
-
-            var records = ParseCsv(content);
-
-            if (records.Count == 0) return (new List<string>(), new List<string?[]>());
-
-            var headers = records[0].Select(h => h?.Trim() ?? string.Empty).ToList();
-
-            var rows = records
-                .Skip(1)
-                .Where(r => r.Any(v => !string.IsNullOrWhiteSpace(v)))
-                .Select(r =>
-                {
-                    // Rows can be shorter or longer than the header; normalise to header width
-                    // so indexing by column never goes out of range.
-                    var normalised = new string?[headers.Count];
-                    for (var i = 0; i < headers.Count && i < r.Length; i++)
-                        normalised[i] = string.IsNullOrWhiteSpace(r[i]) ? null : r[i]!.Trim();
-                    return normalised;
-                })
-                .ToList();
-
-            return (headers, rows);
-        }
-
-        private static List<string?[]> ParseCsv(string content)
-        {
-            var records = new List<string?[]>();
-            var fields = new List<string?>();
-            var field = new StringBuilder();
-
-            var inQuotes = false;
-            var i = 0;
-
-            while (i < content.Length)
-            {
-                var ch = content[i];
-
-                if (inQuotes)
-                {
-                    if (ch == '"')
-                    {
-                        // "" inside a quoted field is a literal quote.
-                        if (i + 1 < content.Length && content[i + 1] == '"')
-                        {
-                            field.Append('"');
-                            i += 2;
-                            continue;
-                        }
-
-                        inQuotes = false;
-                        i++;
-                        continue;
-                    }
-
-                    field.Append(ch);
-                    i++;
-                    continue;
-                }
-
-                switch (ch)
-                {
-                    case '"':
-                        inQuotes = true;
-                        i++;
-                        break;
-
-                    case ',':
-                    case ';': // Excel on a European locale writes semicolons
-                        fields.Add(field.ToString());
-                        field.Clear();
-                        i++;
-                        break;
-
-                    case '\r':
-                        i++;
-                        break;
-
-                    case '\n':
-                        fields.Add(field.ToString());
-                        field.Clear();
-                        records.Add(fields.ToArray());
-                        fields.Clear();
-                        i++;
-                        break;
-
-                    default:
-                        field.Append(ch);
-                        i++;
-                        break;
-                }
-            }
-
-            if (field.Length > 0 || fields.Count > 0)
-            {
-                fields.Add(field.ToString());
-                records.Add(fields.ToArray());
-            }
-
-            return records;
-        }
-
-        // ── Column mapping ────────────────────────────────────────────────────
-
-        private static Dictionary<string, int> BuildColumnMap(List<string> headers)
-        {
-            var map = new Dictionary<string, int>(StringComparer.Ordinal);
-
-            for (var i = 0; i < headers.Count; i++)
-            {
-                var folded = TextNormalizer.FoldToWords(headers[i]);
-                if (folded.Length == 0) continue;
-
-                foreach (var (field, aliases) in ColumnAliases)
-                {
-                    if (map.ContainsKey(field)) continue;
-                    if (!aliases.Contains(folded, StringComparer.Ordinal)) continue;
-
-                    map[field] = i;
-                    break;
-                }
-            }
-
-            return map;
-        }
-
-        private static string? Value(string?[] row, Dictionary<string, int> map, string field) =>
-            map.TryGetValue(field, out var index) && index < row.Length ? row[index] : null;
+        // ── Column mapping ─────────────────────────────────────────────────────
 
         private static bool LooksLikeEmail(string email)
         {

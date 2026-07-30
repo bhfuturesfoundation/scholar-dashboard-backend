@@ -8,10 +8,12 @@ using Auth.Services.Interfaces;
 using Auth.Services.Interfaces.FLS;
 using Auth.Services.Interfaces.Mailing;
 using Auth.Services.Interfaces.Operations;
+using Auth.Services.Interfaces.Scholars;
 using Auth.Services.Interfaces.Storage;
 using Auth.Services.Services.Mailing;
 using Auth.Services.Services.Seed;
 using Auth.Services.Services.Operations;
+using Auth.Services.Services.Scholars;
 using Auth.Services.Services.Storage;
 using Auth.Services.Settings;
 using Auth.Services.Services;
@@ -31,6 +33,7 @@ Env.TraversePath().Load();
 // === Add services ===
 builder.Services.AddPersistenceServices(builder.Configuration);
 builder.Services.AddIdentityServices(builder.Configuration);
+builder.Services.AddExternalAuthentication(builder.Configuration);
 builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.AddEmailProviders(builder.Configuration);
 builder.Services.AddRabbitMQServices(builder.Configuration);
@@ -92,6 +95,7 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IOperationsService, OperationsService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<IScholarExportService, ScholarExportService>();
+builder.Services.AddScoped<IScholarLifecycleService, ScholarLifecycleService>();
 
 // Partnerships mailing module.
 builder.Services.AddSingleton<IContactNameExtractor, ContactNameExtractor>();
