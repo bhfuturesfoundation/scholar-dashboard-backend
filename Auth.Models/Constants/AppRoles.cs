@@ -62,6 +62,13 @@ namespace Auth.Models.Constants
         /// </summary>
         public const string BackupManagement = Admin;
 
+        /// <summary>
+        /// May use the partnerships mailing module: the firm directory, templates, campaigns
+        /// and schedules. PartnerMember is the role this module exists for; Admin is included
+        /// so the platform owner is never locked out of a subsystem.
+        /// </summary>
+        public const string Mailing = Admin + "," + PartnerMember;
+
         /// <summary>Any account that belongs to the FLS portal rather than the scholar app.</summary>
         public const string FlsPortal = Admin + "," + FLSAdmin + "," + PartnerMember + "," + FLSSpeaker;
 

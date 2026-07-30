@@ -6,8 +6,11 @@ using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
 using Auth.Services.Interfaces.FLS;
+using Auth.Services.Interfaces.Mailing;
 using Auth.Services.Interfaces.Operations;
 using Auth.Services.Interfaces.Storage;
+using Auth.Services.Services.Mailing;
+using Auth.Services.Services.Seed;
 using Auth.Services.Services.Operations;
 using Auth.Services.Services.Storage;
 using Auth.Services.Settings;
@@ -87,6 +90,20 @@ builder.Services.AddScoped<IVolunteeringService, VolunteeringService>();
 builder.Services.AddScoped<IGameScoreService, GameScoreService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IOperationsService, OperationsService>();
+builder.Services.AddScoped<IBackupService, BackupService>();
+builder.Services.AddScoped<IScholarExportService, ScholarExportService>();
+
+// Partnerships mailing module.
+builder.Services.AddSingleton<IContactNameExtractor, ContactNameExtractor>();
+builder.Services.AddSingleton<IFirmCategorizer, FirmCategorizer>();
+builder.Services.AddScoped<IFirmDirectoryService, FirmDirectoryService>();
+builder.Services.AddScoped<IFirmImportExportService, FirmImportExportService>();
+builder.Services.AddScoped<IMailingTaxonomyService, MailingTaxonomyService>();
+builder.Services.AddScoped<IMailingCampaignService, MailingCampaignService>();
+builder.Services.AddScoped<IMailingScheduleService, MailingScheduleService>();
+
+// Executes due schedules. Hosted, so it runs whether or not anyone opens the UI.
+builder.Services.AddHostedService<MailingSchedulerService>();
 
 // Health checks
 builder.Services.AddHealthChecks()
@@ -260,6 +277,7 @@ using (var scope = app.Services.CreateScope())
     await RunSeederAsync(nameof(SeedData.SeedQuestionsAsync), SeedData.SeedQuestionsAsync);
     await RunSeederAsync(nameof(SeedData.SeedUsersAsync), SeedData.SeedUsersAsync);
     await RunSeederAsync(nameof(SeedData.SeedMentorsAsync), SeedData.SeedMentorsAsync);
+    await RunSeederAsync(nameof(MailingSeedData.SeedAsync), MailingSeedData.SeedAsync);
 }
 
 app.Run();

@@ -2,6 +2,7 @@ using Auth.Models.Entities;
 using Auth.Models.Entities.Email;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Mailing;
+using Auth.Models.Entities.Operations;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,9 @@ namespace Auth.Models.Data
 
         /// <summary>Addresses that must never be mailed. See IEmailSuppressionService.</summary>
         public DbSet<EmailSuppression> EmailSuppressions { get; set; }
+
+        /// <summary>Audit trail of database backups. See IBackupService.</summary>
+        public DbSet<BackupRecord> BackupRecords { get; set; }
 
         // Partnerships mailing — firm outreach. Independent of FLS: these records are
         // organisations the foundation contacts, not application users.
