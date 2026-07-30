@@ -96,6 +96,7 @@ builder.Services.AddScoped<IOperationsService, OperationsService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<IScholarExportService, ScholarExportService>();
 builder.Services.AddScoped<IScholarLifecycleService, ScholarLifecycleService>();
+builder.Services.AddScoped<IMentorAssignmentService, MentorAssignmentService>();
 
 // Partnerships mailing module.
 builder.Services.AddSingleton<IContactNameExtractor, ContactNameExtractor>();
@@ -306,8 +307,19 @@ using (var scope = app.Services.CreateScope())
     await RunSeederAsync(nameof(SeedData.SeedRolesAsync), SeedData.SeedRolesAsync);
     await RunSeederAsync(nameof(SeedData.SeedStaffAccountsAsync), SeedData.SeedStaffAccountsAsync);
     await RunSeederAsync(nameof(SeedData.SeedQuestionsAsync), SeedData.SeedQuestionsAsync);
-    await RunSeederAsync(nameof(SeedData.SeedUsersAsync), SeedData.SeedUsersAsync);
-    await RunSeederAsync(nameof(SeedData.SeedMentorsAsync), SeedData.SeedMentorsAsync);
+    // SeedUsersAsync and SeedMentorsAsync are deliberately NOT run.
+    //
+    // They downloaded two hand-maintained Dropbox CSVs on every boot and reconciled them
+    // against the database. That coupling failed quietly: the mentors sheet referenced 22
+    // scholar addresses with no matching account, so 22 scholars were left unmentored on
+    // every single start and the only evidence was a log line nobody reads. The share
+    // links also carry an expiring signature, so the whole thing was one rotation away
+    // from silently seeding nothing.
+    //
+    // Both jobs now live in /admin/scholars, where a person sees what didn't match and can
+    // fix it: intake creates accounts from an uploaded sheet, and mentor pairing reports
+    // unmatched rows instead of logging them. The seeders below are local, idempotent and
+    // network-free, which is why they still run.
     await RunSeederAsync(nameof(MailingSeedData.SeedAsync), MailingSeedData.SeedAsync);
 }
 

@@ -135,4 +135,72 @@ namespace Auth.Models.DTOs.Scholars
         /// <summary>True when the credential sheet was also archived to Dropbox.</summary>
         public bool CredentialsArchived { get; set; }
     }
+
+    // ── Mentor assignment ─────────────────────────────────────────────────────
+
+    public class MentorSummaryDto
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public bool IsActive { get; set; }
+        public int MenteeCount { get; set; }
+    }
+
+    public class MenteeAssignmentDto
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? GenerationName { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public bool IsActive { get; set; }
+
+        public string? MentorId { get; set; }
+        public string? MentorName { get; set; }
+        public string? MentorEmail { get; set; }
+    }
+
+    public class MentorAssignmentOverviewDto
+    {
+        public int TotalScholars { get; set; }
+        public int AssignedCount { get; set; }
+        public int UnassignedCount { get; set; }
+        public int MentorCount { get; set; }
+
+        /// <summary>Mentors carrying no mentees — spare capacity.</summary>
+        public int MentorsWithNoMentees { get; set; }
+
+        /// <summary>Largest single caseload, for spotting an overloaded mentor.</summary>
+        public int LargestCaseload { get; set; }
+    }
+
+    public class MentorPairingIssueDto
+    {
+        public int RowNumber { get; set; }
+        public string? MentorEmail { get; set; }
+        public string? ScholarEmail { get; set; }
+        public string Outcome { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+    }
+
+    public class MentorPairingResultDto
+    {
+        public bool WasDryRun { get; set; }
+        public string FileName { get; set; } = string.Empty;
+
+        public int TotalRows { get; set; }
+        public int AssignedCount { get; set; }
+        public int ReassignedCount { get; set; }
+        public int UnchangedCount { get; set; }
+        public int FailedCount { get; set; }
+
+        public List<string> DetectedColumns { get; set; } = new();
+
+        /// <summary>
+        /// Every row that could not be paired, with the reason. Surfaced to the operator
+        /// rather than written to a startup log.
+        /// </summary>
+        public List<MentorPairingIssueDto> Issues { get; set; } = new();
+    }
 }

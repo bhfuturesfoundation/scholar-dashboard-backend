@@ -25,15 +25,18 @@ namespace Auth.API.Controllers
     public class ScholarsController : ControllerBase
     {
         private readonly IScholarLifecycleService _lifecycle;
+        private readonly IMentorAssignmentService _mentors;
         private readonly IAuditService _audit;
         private readonly ILogger<ScholarsController> _logger;
 
         public ScholarsController(
             IScholarLifecycleService lifecycle,
+            IMentorAssignmentService mentors,
             IAuditService audit,
             ILogger<ScholarsController> logger)
         {
             _lifecycle = lifecycle;
+            _mentors = mentors;
             _audit = audit;
             _logger = logger;
         }
@@ -209,5 +212,92 @@ namespace Auth.API.Controllers
                 ? File(TabularExporter.ToCsv(table), TabularExporter.CsvContentType, "scholar-import-template.csv")
                 : File(TabularExporter.ToExcel(table), TabularExporter.ExcelContentType, "scholar-import-template.xlsx");
         }
+        // ── Mentor assignment ─────────────────────────────────────────────────
+
+        [HttpGet("mentors/overview")]
+        public async Task<ActionResult<ApiResponse<MentorAssignmentOverviewDto>>> MentorOverview(CancellationToken ct) =>
+            Ok(ApiResponse<MentorAssignmentOverviewDto>.SuccessResponse(
+                await _mentors.GetOverviewAsync(ct), "Overview retrieved"));
+
+        [HttpGet("mentors")]
+        public async Task<ActionResult<ApiResponse<List<MentorSummaryDto>>>> GetMentors(CancellationToken ct) =>
+            Ok(ApiResponse<List<MentorSummaryDto>>.SuccessResponse(
+                await _mentors.GetMentorsAsync(ct), "Mentors retrieved"));
+
+        /// <summary>Scholars and their mentor. Filter to the unassigned to work through the gap.</summary>
+        [HttpGet("mentors/scholars")]
+        public async Task<ActionResult<ApiResponse<List<MenteeAssignmentDto>>>> GetMenteeAssignments(
+            [FromQuery] bool onlyUnassigned = false,
+            [FromQuery] string? search = null,
+            CancellationToken ct = default) =>
+            Ok(ApiResponse<List<MenteeAssignmentDto>>.SuccessResponse(
+                await _mentors.GetScholarsAsync(onlyUnassigned, search, ct), "Scholars retrieved"));
+
+        [HttpPost("mentors/assign")]
+        public async Task<ActionResult<ApiResponse<bool>>> AssignMentor(
+            [FromBody] AssignMentorRequest request, CancellationToken ct)
+        {
+            await _mentors.AssignAsync(request.ScholarId, request.MentorId, ct);
+            await _audit.LogAsync("Scholars.MentorAssigned", UserId,
+                $"Scholar={request.ScholarId} Mentor={request.MentorId}", Ip);
+
+            return Ok(ApiResponse<bool>.SuccessResponse(true, "Mentor assigned"));
+        }
+
+        [HttpPost("mentors/unassign/{scholarId}")]
+        public async Task<ActionResult<ApiResponse<bool>>> UnassignMentor(string scholarId, CancellationToken ct)
+        {
+            await _mentors.UnassignAsync(scholarId, ct);
+            await _audit.LogAsync("Scholars.MentorUnassigned", UserId, $"Scholar={scholarId}", Ip);
+
+            return Ok(ApiResponse<bool>.SuccessResponse(true, "Mentor removed"));
+        }
+
+        /// <summary>
+        /// Pairs scholars to mentors from a spreadsheet. Dry-run by default.
+        ///
+        /// Rows that cannot be paired come back as issues rather than being logged and
+        /// forgotten — this replaces the startup seeder whose failures nobody saw.
+        /// </summary>
+        [HttpPost("mentors/import")]
+        [RequestSizeLimit(20 * 1024 * 1024)]
+        public async Task<ActionResult<ApiResponse<MentorPairingResultDto>>> ImportPairings(
+            IFormFile file,
+            [FromQuery] bool dryRun = true,
+            [FromQuery] bool reassignExisting = false,
+            CancellationToken ct = default)
+        {
+            if (file is null || file.Length == 0)
+                return BadRequest(ApiResponse<object>.ErrorResponse("No file was uploaded."));
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (extension is not (".csv" or ".xlsx" or ".xlsm" or ".txt"))
+                return BadRequest(ApiResponse<object>.ErrorResponse("Upload a .csv or .xlsx file."));
+
+            await using var stream = file.OpenReadStream();
+
+            var result = await _mentors.ImportPairingsAsync(
+                stream, file.FileName,
+                new MentorPairingOptions { DryRun = dryRun, ReassignExisting = reassignExisting },
+                ct);
+
+            if (!dryRun)
+            {
+                await _audit.LogAsync("Scholars.MentorsPaired", UserId,
+                    $"File={file.FileName} Assigned={result.AssignedCount} Reassigned={result.ReassignedCount}", Ip);
+            }
+
+            var message = dryRun
+                ? $"Validated {result.TotalRows} row(s) — nothing saved."
+                : $"{result.AssignedCount} assigned, {result.ReassignedCount} reassigned.";
+
+            return Ok(ApiResponse<MentorPairingResultDto>.SuccessResponse(result, message));
+        }
+    }
+
+    public class AssignMentorRequest
+    {
+        public string ScholarId { get; set; } = string.Empty;
+        public string MentorId { get; set; } = string.Empty;
     }
 }
