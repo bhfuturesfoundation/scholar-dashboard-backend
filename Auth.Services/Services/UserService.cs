@@ -1,4 +1,6 @@
-﻿using Auth.Models.Entities;
+﻿
+using Auth.Models.Entities;
+using Auth.Models.Results;
 using Auth.Models.Exceptions;
 using Auth.Models.Request;
 using Auth.Models.Response;
@@ -149,31 +151,51 @@ namespace Auth.Services.Services
             return user.Title ?? string.Empty;
         }
 
-        public async Task<(bool Succeeded, User User, bool RequiresTwoFactor, bool EmailNotConfirmed)> VerifyCredentialsAsync(string email, string password)
+        public async Task<CredentialVerificationResult> VerifyCredentialsAsync(string email, string password)
         {
             var user = await GetUserAsync(email, byEmail: true, throwIfNotFound: false);
             if (user == null)
-                return (false, null, false, false);
-
-            var result = await _signInManager.CheckPasswordSignInAsync(user, password, false);
-            if (!result.Succeeded)
             {
-                _logger.LogWarning("Failed login for user {Email} - invalid password", email);
-                return (false, null, false, false);
+                // Same reason as a wrong password: distinguishing them would let anyone
+                // enumerate which addresses have accounts.
+                _logger.LogWarning("Failed login — no account for {Email}", email);
+                return CredentialVerificationResult.Fail(CredentialFailureReason.InvalidCredentials);
             }
 
-            bool emailNotConfirmed = !user.EmailConfirmed;
-            if (emailNotConfirmed)
-                _logger.LogInformation("Login for user {Email} with unconfirmed email", email);
+            if (!user.IsActive)
+            {
+                _logger.LogWarning("Failed login for {Email} — account is deactivated", email);
+                return CredentialVerificationResult.Fail(CredentialFailureReason.Disabled);
+            }
+
+            // lockoutOnFailure was false, which meant the configured lockout policy
+            // (5 attempts / 15 minutes) never actually applied — passwords could be guessed
+            // indefinitely. Counting failures is the entire point of that configuration.
+            var result = await _signInManager.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
+
+            if (result.IsLockedOut)
+            {
+                _logger.LogWarning("Login blocked for {Email} — account locked until {Until}", email, user.LockoutEnd);
+                return CredentialVerificationResult.Fail(CredentialFailureReason.LockedOut, user.LockoutEnd);
+            }
+
+            if (!result.Succeeded)
+            {
+                _logger.LogWarning("Failed login for {Email} — invalid password", email);
+                return CredentialVerificationResult.Fail(CredentialFailureReason.InvalidCredentials);
+            }
+
+            if (!user.EmailConfirmed)
+                _logger.LogInformation("Login for {Email} with unconfirmed email", email);
 
             if (user.TwoFactorEnabled)
             {
-                _logger.LogInformation("Login requires 2FA for user {Email}", email);
-                return (true, user, true, emailNotConfirmed);
+                _logger.LogInformation("Login requires 2FA for {Email}", email);
+                return CredentialVerificationResult.Ok(user, requiresTwoFactor: true, emailConfirmed: user.EmailConfirmed);
             }
 
-            _logger.LogInformation("Successful login for user {Email}", email);
-            return (true, user, false, emailNotConfirmed);
+            _logger.LogInformation("Successful login for {Email}", email);
+            return CredentialVerificationResult.Ok(user, requiresTwoFactor: false, emailConfirmed: user.EmailConfirmed);
         }
 
         public async Task<string> GenerateEmailConfirmationTokenAsync(string userId)

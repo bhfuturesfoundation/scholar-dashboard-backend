@@ -38,7 +38,10 @@ builder.Services.AddCors(options =>
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowCredentials()
+            // Without this the browser hides X-New-Token from JavaScript, so the client can
+            // never pick up a token rotated mid-request and keeps sending the expired one.
+            .WithExposedHeaders("X-New-Token");
     });
 });
 

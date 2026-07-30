@@ -165,11 +165,21 @@ public class AuthController : ControllerBase
 
             return Ok(ApiResponse<AuthResponse>.SuccessResponse(result, message));
         }
+        catch (AppExceptions)
+        {
+            // Expected failures (bad credentials, lockout, deactivated account) carry their
+            // own message and status via ErrorHandlingMiddleware. This used to be swallowed
+            // into a blanket 400 "Login failed.", which hid the reason from the user and from
+            // us — a locked-out account and a typo looked identical in the browser.
+            _ = _auditService.LogAsync("Login.Failed", payload: request.Email, ipAddress: ipAddress);
+            throw;
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during login for {Email}", request.Email);
-            _ = _auditService.LogAsync("Login.Failed", payload: request.Email, ipAddress: ipAddress);
-            return BadRequest(ApiResponse<AuthResponse>.ErrorResponse("Login failed."));
+            // Genuinely unexpected — a 500 is the honest answer, not a 400.
+            _logger.LogError(ex, "Unexpected error during login for {Email}", request.Email);
+            _ = _auditService.LogAsync("Login.Error", payload: request.Email, ipAddress: ipAddress);
+            throw;
         }
     }
 

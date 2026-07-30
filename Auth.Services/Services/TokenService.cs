@@ -167,10 +167,28 @@ namespace Auth.Services.Services
 
             if (refreshTokenEntity.RevokedAt != null)
             {
-                if (_refreshTokenSettings.DetectTokenReuse && refreshTokenEntity.ReplacedByToken != null)
+                var wasRotated = refreshTokenEntity.ReplacedByToken != null;
+                var sinceRevoked = DateTime.UtcNow - refreshTokenEntity.RevokedAt.Value;
+                var withinGrace = sinceRevoked <= TimeSpan.FromSeconds(_refreshTokenSettings.RotationGraceSeconds);
+
+                // A rotated token presented moments after rotation is a concurrent request
+                // from the same client, not an attack — see RotationGraceSeconds. Treating
+                // it as reuse is what made every page load revoke the user's sessions.
+                if (wasRotated && withinGrace)
                 {
-                    _logger.LogWarning("SECURITY ALERT: Detected refresh token reuse! Token: {Token}, User: {UserId}",
-                        refreshToken, userId);
+                    _logger.LogInformation(
+                        "Refresh token for user {UserId} was rotated {Age:F1}s ago; accepting as a concurrent request.",
+                        userId, sinceRevoked.TotalSeconds);
+
+                    return user;
+                }
+
+                if (_refreshTokenSettings.DetectTokenReuse && wasRotated)
+                {
+                    // Genuine reuse: a superseded token replayed long after it was replaced.
+                    _logger.LogWarning(
+                        "SECURITY ALERT: refresh token reuse for user {UserId}, {Age:F0}s after rotation. Revoking all sessions.",
+                        userId, sinceRevoked.TotalSeconds);
 
                     await RevokeAllRefreshTokensAsync(userId, ipAddress, "Token reuse detected");
 
@@ -204,6 +222,28 @@ namespace Auth.Services.Services
 
             var user = await _userManager.FindByIdAsync(userId);
             var newJwtToken = await GenerateJwtTokenAsync(user);
+
+            // Already rotated by a concurrent request inside the grace window: hand back the
+            // replacement that request issued rather than minting a second one. Without this,
+            // N parallel requests produce N refresh tokens and N-1 of them are immediately
+            // orphaned, so whichever response lands last decides which cookie the browser
+            // keeps — and the others become "reuse" the next time they're presented.
+            if (oldToken.RevokedAt != null &&
+                oldToken.ReplacedByToken != null &&
+                DateTime.UtcNow - oldToken.RevokedAt.Value <= TimeSpan.FromSeconds(_refreshTokenSettings.RotationGraceSeconds))
+            {
+                _logger.LogInformation(
+                    "Reusing the replacement refresh token already issued for user {UserId}.", userId);
+
+                return new AuthResponse
+                {
+                    Token = newJwtToken,
+                    RefreshToken = oldToken.ReplacedByToken,
+                    Expiration = DateTime.UtcNow.AddMinutes(_jwtSettings.ExpirationInMinutes),
+                    RequiresTwoFactor = false,
+                    EmailConfirmed = user.EmailConfirmed
+                };
+            }
 
             if (_refreshTokenSettings.EnableTokenRotation)
             {
