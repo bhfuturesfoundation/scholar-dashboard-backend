@@ -184,6 +184,7 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.SlidingExpiration = true;
 });
 
+var ProcessStart = DateTime.UtcNow;
 var app = builder.Build();
 
 // === Middlewares ===
@@ -203,6 +204,32 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthChecks("/healthz");
+
+// Which build is actually running. Unauthenticated and dependency-free on purpose.
+//
+// This exists because a broken image build is silent: the platform keeps serving the last
+// good image, so the API stays up and healthy while running weeks-old code. That went
+// unnoticed until endpoints that had been merged and pushed returned 404 in production.
+// One curl now answers "is my code deployed?" without needing a login or the dashboard.
+app.MapGet("/version", () => Results.Ok(new
+{
+    commit = Environment.GetEnvironmentVariable("RAILWAY_GIT_COMMIT_SHA") ?? "unknown",
+    branch = Environment.GetEnvironmentVariable("RAILWAY_GIT_BRANCH") ?? "unknown",
+    deploymentId = Environment.GetEnvironmentVariable("RAILWAY_DEPLOYMENT_ID") ?? "unknown",
+    assemblyVersion = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(),
+
+    // Stamped into the image at build time, so it is accurate even when the platform
+    // exposes no git metadata at all.
+    builtAtUtc = Environment.GetEnvironmentVariable("BUILD_TIMESTAMP") ?? "unknown",
+
+    startedAtUtc = ProcessStart,
+
+    // A cheap fingerprint of what this build can actually serve. If /api/operations 404s
+    // but this says the controller is present, the problem is routing rather than a stale
+    // image — and vice versa.
+    hasOperationsApi = true,
+    hasMailingApi = true
+}));
 app.MapHub<MinigamesHub>("/hubs/minigames").RequireRateLimiting("signalr-hub");
 app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub");
 app.MapControllers();

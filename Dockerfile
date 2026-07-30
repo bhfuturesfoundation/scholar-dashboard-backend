@@ -62,6 +62,11 @@ RUN set -eux; \
 
 COPY --from=build /app/publish .
 
+# Stamped at build time so /version reports which image is actually running, even when the
+# platform exposes no git metadata. Placed after COPY so it never invalidates earlier layers.
+ARG BUILD_TIMESTAMP=unknown
+ENV BUILD_TIMESTAMP=$BUILD_TIMESTAMP
+
 # Railway expects port 8080
 ENV ASPNETCORE_URLS=http://+:8080
 
