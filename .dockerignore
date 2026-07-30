@@ -1,0 +1,35 @@
+# Build output from the host machine.
+#
+# Without this, `COPY . .` drags the developer's bin/ and obj/ into the Linux image —
+# including obj/project.assets.json, which contains absolute Windows paths like
+# C:\Users\...\.nuget\packages. That silently overwrites the assets file produced by the
+# restore layer, so the publish either rebuilds from scratch (throwing away the cache) or
+# fails outright once --no-restore is used.
+**/bin/
+**/obj/
+**/out/
+
+# Never bake real credentials into an image layer. .env.example is kept deliberately.
+.env
+.env.*
+!.env.example
+
+# Not needed to build, and .git in particular is large and changes every commit, which
+# would bust the Docker layer cache on every push.
+.git/
+.gitignore
+.github/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Test project — the runtime image restores and publishes Auth.API only. Excluding it here
+# means adding another test or tooling project can never affect the deploy.
+Auth.Tests/
+
+# Documentation and local tooling.
+docs/
+*.md
+docker-compose.yml
