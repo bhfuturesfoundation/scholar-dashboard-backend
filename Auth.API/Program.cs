@@ -147,6 +147,11 @@ builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
 // would allocate one per request for no reason.
 builder.Services.AddSingleton<INotificationRealtime, SignalRNotificationRealtime>();
 
+// Singleton, and it has to be: presence is the live connection state of the whole
+// process. A scoped tracker would be a fresh empty dictionary per request and would
+// always report nobody online.
+builder.Services.AddSingleton<IPresenceTracker, PresenceTracker>();
+
 // Typed client so the push service gets connection pooling and the standard handler
 // lifetime rather than a socket per send.
 builder.Services.AddHttpClient<IPushSender, WebPushSender>();
