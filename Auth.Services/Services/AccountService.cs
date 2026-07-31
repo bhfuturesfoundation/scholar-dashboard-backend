@@ -66,6 +66,15 @@ namespace Auth.Services.Services
 
             var isScholar = roles.Contains(Models.Constants.AppRoles.User);
 
+            // Two scalars, never the image. Projecting to an anonymous type is what keeps this
+            // cheap — selecting the row would drag the byte[] into every settings-page load,
+            // which is the whole reason avatars live in a separate table.
+            var avatar = await _context.UserAvatars
+                .AsNoTracking()
+                .Where(a => a.UserId == userId)
+                .Select(a => new { a.UpdatedAt })
+                .FirstOrDefaultAsync(cancellationToken);
+
             return new AccountOverviewDto
             {
                 Id = user.Id,
@@ -106,7 +115,10 @@ namespace Auth.Services.Services
                 // The OAuth flow links by email rather than by stored login, so there is
                 // nothing to report. Kept on the DTO so the field does not have to be
                 // reintroduced if that changes.
-                ExternalLogins = new List<string>()
+                ExternalLogins = new List<string>(),
+
+                HasAvatar = avatar is not null,
+                AvatarUpdatedAt = avatar?.UpdatedAt
             };
         }
 

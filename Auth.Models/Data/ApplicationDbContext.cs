@@ -3,6 +3,7 @@ using Auth.Models.Entities.Email;
 using Auth.Models.Entities.Engagement;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Mailing;
+using Auth.Models.Entities.News;
 using Auth.Models.Entities.Notifications;
 using Auth.Models.Entities.Suggestions;
 using Auth.Models.Entities.Operations;
@@ -26,6 +27,12 @@ namespace Auth.Models.Data
         public DbSet<Answer> Answers { get; set; }
         public DbSet<Skill> Skills { get; set; }
         public DbSet<JournalSubmission> JournalSubmissions { get; set; }
+
+        /// <summary>
+        /// Profile pictures, one row per person. Its own table so the byte[] never rides
+        /// along on the many queries that load <c>User</c>. See <see cref="UserAvatar"/>.
+        /// </summary>
+        public DbSet<UserAvatar> UserAvatars { get; set; }
 
         // Gamification
         public DbSet<GameScore> GameScores { get; set; }
@@ -63,6 +70,12 @@ namespace Auth.Models.Data
         // Suggestion board
         public DbSet<Suggestion> Suggestions { get; set; }
         public DbSet<SuggestionVote> SuggestionVotes { get; set; }
+
+        /// <summary>
+        /// News mirrored from the foundation's public website. See <see cref="NewsPost"/> and
+        /// INewsScraperService.
+        /// </summary>
+        public DbSet<NewsPost> NewsPosts { get; set; }
 
         // Scholar lifecycle
         public DbSet<ScholarGeneration> ScholarGenerations { get; set; }
@@ -226,11 +239,93 @@ namespace Auth.Models.Data
                 .HasIndex(s => s.NormalizedEmail)
                 .IsUnique();
 
+            ConfigureAvatars(builder);
             ConfigureEngagement(builder);
             ConfigureScholarLifecycle(builder);
             ConfigureMailing(builder);
             ConfigureNotifications(builder);
             ConfigureSuggestions(builder);
+            ConfigureGames(builder);
+            ConfigureNews(builder);
+        }
+
+        /// <summary>News mirrored from the foundation's public website.</summary>
+        private static void ConfigureNews(ModelBuilder builder)
+        {
+            // The natural key, and the thing that makes the scrape idempotent. The unique
+            // index is what actually enforces it: the scraper runs hourly-checked and can be
+            // triggered by hand at the same moment, so "look it up, then insert if missing"
+            // is a race two callers can pass through together. Without this, a manual refresh
+            // clicked while the background run was mid-flight would duplicate every post.
+            builder.Entity<NewsPost>()
+                .HasIndex(p => p.SourceUrl)
+                .IsUnique();
+
+            // The widget's only query: newest first, take three.
+            builder.Entity<NewsPost>()
+                .HasIndex(p => new { p.PublishedAt, p.SortOrder });
+
+            // Bounded because they are bounded in practice, and because an unbounded text
+            // column invites storing something unbounded. A Squarespace URL runs to roughly
+            // 200 characters; 500 leaves room without pretending there is no limit.
+            builder.Entity<NewsPost>()
+                .Property(p => p.SourceUrl)
+                .HasMaxLength(500)
+                .IsRequired();
+
+            builder.Entity<NewsPost>()
+                .Property(p => p.Title)
+                .HasMaxLength(500)
+                .IsRequired();
+
+            // Generous: the source excerpts run to a couple of hundred characters today, but
+            // this is someone else's editorial copy and truncating their prose at our
+            // convenience would be worse than storing it.
+            builder.Entity<NewsPost>()
+                .Property(p => p.Excerpt)
+                .HasMaxLength(2000);
+
+            builder.Entity<NewsPost>()
+                .Property(p => p.Author)
+                .HasMaxLength(200);
+
+            // Fixed-shape values the service writes, exactly as UserAvatar does.
+            builder.Entity<NewsPost>()
+                .Property(p => p.ImageContentType)
+                .HasMaxLength(100);
+
+            builder.Entity<NewsPost>()
+                .Property(p => p.ImageETag)
+                .HasMaxLength(64);
+        }
+
+        /// <summary>Profile pictures — a 1:1 side table on User holding the image bytes.</summary>
+        private static void ConfigureAvatars(ModelBuilder builder)
+        {
+            // UserId is both the key and the foreign key. That is what makes this one-to-one:
+            // there is nowhere to put a second row for the same person, so "which of this
+            // user's avatars is current" is a question the schema cannot be asked.
+            builder.Entity<UserAvatar>()
+                .HasKey(a => a.UserId);
+
+            // Cascade, unlike Kudos next door. A picture is entirely the account holder's own
+            // — nobody else's record depends on it — so a deleted account should take it with
+            // it rather than leave orphaned image bytes behind.
+            builder.Entity<UserAvatar>()
+                .HasOne(a => a.User)
+                .WithOne()
+                .HasForeignKey<UserAvatar>(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Bounded because they are: the service writes a fixed content type and a
+            // fixed-length hash. Unbounded text columns here would suggest they vary.
+            builder.Entity<UserAvatar>()
+                .Property(a => a.ContentType)
+                .HasMaxLength(100);
+
+            builder.Entity<UserAvatar>()
+                .Property(a => a.ETag)
+                .HasMaxLength(64);
         }
 
         /// <summary>Badges and peer recognition.</summary>
@@ -403,6 +498,23 @@ namespace Auth.Models.Data
                 .WithMany()
                 .HasForeignKey(v => v.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        }
+
+
+        /// <summary>Leaderboard reads.</summary>
+        private static void ConfigureGames(ModelBuilder builder)
+        {
+            // The leaderboard groups by user within a game and filters on Verified, so this
+            // is the covering shape for the only query that matters here.
+            builder.Entity<GameScore>()
+                .HasIndex(g => new { g.GameId, g.Verified, g.Score });
+
+            builder.Entity<GameScore>()
+                .HasIndex(g => new { g.UserId, g.GameId });
+
+            builder.Entity<GameScore>()
+                .Property(g => g.SessionId)
+                .HasMaxLength(64);
         }
 
         /// <summary>Generations, cohort status and revertable promotion batches.</summary>

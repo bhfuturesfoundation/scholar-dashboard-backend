@@ -43,6 +43,7 @@ namespace Auth.Services.Services.Operations
         public const string Infrastructure = "Infrastructure";
         public const string Seeding = "Seeding";
         public const string Notifications = "Notifications";
+        public const string News = "News";
 
         public static readonly IReadOnlyList<EnvVarDefinition> All = new List<EnvVarDefinition>
         {
@@ -162,6 +163,16 @@ namespace Auth.Services.Services.Operations
                 "Day of the week the weekly summary email goes out.", "Defaults to Monday."),
             new("DIGEST_HOUR_UTC", Notifications, EnvVarImportance.Optional,
                 "Hour (UTC) the weekly summary goes out.", "Defaults to 7."),
+
+            // ── News ──────────────────────────────────────────────────────────
+            new("NEWS_SCRAPE_ENABLED", News, EnvVarImportance.Optional,
+                "Set to false to stop the daily scrape of bhfuturesfoundation.org/news.",
+                "Enabled by default. Turning it off freezes the dashboard's news widget at " +
+                "whatever was last stored — it does not empty it."),
+            new("NEWS_SCRAPE_HOUR_UTC", News, EnvVarImportance.Optional,
+                "Hour (UTC) the daily news scrape runs.",
+                "Defaults to 5, which is before the working day in Sarajevo and clear of the " +
+                "02:00 backup window."),
         };
 
         public static IEnumerable<string> Categories => All

@@ -67,5 +67,40 @@ namespace Auth.Models.DTOs.Account
 
         /// <summary>Whether this account signs in through Google or GitHub rather than a password.</summary>
         public List<string> ExternalLogins { get; set; } = new();
+
+        // ── Avatar ────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Whether a picture has been uploaded. The client uses this to decide between the
+        /// image and the initials monogram *before* issuing a request, so a person with no
+        /// avatar costs no round trip and never flashes a broken image.
+        /// </summary>
+        public bool HasAvatar { get; set; }
+
+        /// <summary>
+        /// When the picture was last replaced, or null if there is none.
+        ///
+        /// This is the cache-buster. The avatar endpoint is served with a long
+        /// <c>Cache-Control</c> under a URL that contains only the user id — which is exactly
+        /// what makes a replacement invisible, since nothing about the URL changed. Appending
+        /// this timestamp as a query parameter gives the new image a URL the browser has
+        /// never seen, so "I changed my picture and it still shows the old one" cannot happen.
+        /// </summary>
+        public DateTime? AvatarUpdatedAt { get; set; }
+    }
+
+    /// <summary>
+    /// One stored avatar on its way out to the wire.
+    ///
+    /// A DTO rather than the entity because the entity carries a <c>User</c> navigation
+    /// property, and handing a controller something that can lazily reach the whole user graph
+    /// is how an endpoint that meant to serve 8 KB of image ends up joining three tables.
+    /// </summary>
+    public class AvatarImageDto
+    {
+        public byte[] Bytes { get; set; } = Array.Empty<byte>();
+        public string ContentType { get; set; } = string.Empty;
+        public string ETag { get; set; } = string.Empty;
+        public DateTime UpdatedAt { get; set; }
     }
 }

@@ -18,10 +18,33 @@ namespace Auth.Services.Services
             _logger = logger;
         }
 
+        /// <summary>
+        /// The legacy path: a score posted by the browser.
+        ///
+        /// Kept because the older minigames still use it, but everything written here is
+        /// marked unverified, because it is — the client decided the number. The leaderboard
+        /// filters these out by default rather than pretending they mean the same thing as a
+        /// score the server computed.
+        ///
+        /// The cap is not security, it is damage control: it stops a single absurd value
+        /// from permanently topping a board that people can still see.
+        /// </summary>
         public async Task SubmitScoreAsync(string userId, string gameId, int score)
         {
+            const int implausibleCeiling = 1_000_000;
+
+            if (score < 0) score = 0;
+            if (score > implausibleCeiling)
+            {
+                _logger.LogWarning(
+                    "Clamped an implausible client-submitted score of {Score} for {Game} from {User}.",
+                    score, gameId, userId);
+                score = implausibleCeiling;
+            }
+
             _context.GameScores.Add(new GameScore
             {
+                Verified = false,
                 UserId = userId,
                 GameId = gameId,
                 Score = score,
@@ -31,11 +54,20 @@ namespace Auth.Services.Services
             _logger.LogInformation("Score {Score} submitted for game {GameId} by user {UserId}", score, gameId, userId);
         }
 
-        public async Task<List<LeaderboardEntry>> GetLeaderboardAsync(string gameId, int top = 10)
+        /// <summary>
+        /// The leaderboard.
+        ///
+        /// <paramref name="verifiedOnly"/> defaults to true: a board that mixes scores the
+        /// server computed with numbers a browser asserted is not a leaderboard, it is a
+        /// suggestion. The unverified view is still reachable so the history of the older
+        /// games is not simply hidden.
+        /// </summary>
+        public async Task<List<LeaderboardEntry>> GetLeaderboardAsync(
+            string gameId, int top = 10, bool verifiedOnly = true)
         {
             // Step 1: get each user's personal best for this game, ranked
             var bestScores = await _context.GameScores
-                .Where(g => g.GameId == gameId)
+                .Where(g => g.GameId == gameId && (!verifiedOnly || g.Verified))
                 .GroupBy(g => g.UserId)
                 .Select(g => new
                 {

@@ -23,6 +23,7 @@ public class AuthController : ControllerBase
     private readonly IEmailService _emailService;
     private readonly IAuditService _auditService;
     private readonly IAccountService _accountService;
+    private readonly IAvatarService _avatarService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -33,6 +34,7 @@ public class AuthController : ControllerBase
         IEmailService emailService,
         IAuditService auditService,
         IAccountService accountService,
+        IAvatarService avatarService,
         ILogger<AuthController> logger)
     {
         _authService = authService;
@@ -42,6 +44,7 @@ public class AuthController : ControllerBase
         _emailService = emailService;
         _auditService = auditService;
         _accountService = accountService;
+        _avatarService = avatarService;
         _logger = logger;
     }
 
@@ -103,6 +106,96 @@ public class AuthController : ControllerBase
         var fileName = $"my-data-{DateTime.UtcNow:yyyy-MM-dd}.json";
 
         return File(bytes, "application/json", fileName);
+    }
+
+    // ── Avatars ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Uploads a new profile picture, replacing any existing one.
+    ///
+    /// Returns the refreshed overview rather than 204, so the client picks up the new
+    /// <c>AvatarUpdatedAt</c> in the same round trip — that timestamp is the cache-buster,
+    /// and a client that had to guess it would render the previous image.
+    /// </summary>
+    [Authorize]
+    [HttpPost("me/avatar")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<AccountOverviewDto>>> UploadAvatar(
+        IFormFile file, CancellationToken ct)
+    {
+        // 6 MB at the framework, 5 MB in the service. Deliberately not the same number: the
+        // framework limit covers the whole multipart body — boundaries, headers, filename —
+        // so setting it to exactly 5 MB would reject a 5 MB file for its envelope and produce
+        // a bare 413 instead of the service's explanatory message.
+        await _avatarService.UploadAsync(GetUserId(), file, ct);
+
+        return Ok(ApiResponse<AccountOverviewDto>.SuccessResponse(
+            await _accountService.GetOverviewAsync(GetUserId(), ct), "Avatar updated"));
+    }
+
+    /// <summary>Removes the caller's profile picture. Succeeds even if there was none.</summary>
+    [Authorize]
+    [HttpDelete("me/avatar")]
+    public async Task<ActionResult<ApiResponse<AccountOverviewDto>>> DeleteAvatar(CancellationToken ct)
+    {
+        await _avatarService.DeleteAsync(GetUserId(), ct);
+
+        return Ok(ApiResponse<AccountOverviewDto>.SuccessResponse(
+            await _accountService.GetOverviewAsync(GetUserId(), ct), "Avatar removed"));
+    }
+
+    /// <summary>
+    /// Serves any signed-in user's avatar.
+    ///
+    /// Takes a user id and is not scoped to the caller, unlike everything in the /me group
+    /// above — deliberately, because an avatar's entire purpose is to appear beside *other*
+    /// people's names: the presence list, the kudos feed, the admin roster. [Authorize] with
+    /// no role is the right boundary: nothing here is private among signed-in members, and it
+    /// must not be readable by the open internet.
+    ///
+    /// Raw bytes rather than the usual ApiResponse envelope, because the consumer is an
+    /// &lt;img src&gt; and the browser needs an image, not JSON with base64 in it.
+    /// </summary>
+    [Authorize]
+    [HttpGet("/api/users/{id}/avatar")]
+    public async Task<IActionResult> GetUserAvatar(string id, CancellationToken ct)
+    {
+        var avatar = await _avatarService.GetAsync(id, ct);
+
+        // 404 rather than a placeholder image. The client already renders an initials
+        // monogram for people with no picture, and serving a generated default here would
+        // mean every avatar-less scholar costs a request that returns something the client
+        // then has to detect and discard.
+        if (avatar is null) return NotFound();
+
+        var etag = new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{avatar.ETag}\"");
+
+        // ── The 304 path is the point of this endpoint ────────────────────────
+        //
+        // Without it, a 30-person roster is 30 image downloads on every render — the presence
+        // dropdown alone reopens several times a session, and the browser will happily
+        // re-request each one. Answering If-None-Match with an empty 304 turns that into 30
+        // header exchanges of a few hundred bytes each, and it costs one string comparison
+        // here because the hash is stored on the row rather than computed from the bytes.
+        //
+        // Compared before the body is touched, which is the only ordering that actually saves
+        // anything: checking after loading the image would still have read every byte.
+        var requested = Request.Headers.IfNoneMatch.ToString();
+        if (!string.IsNullOrEmpty(requested) && requested.Contains(avatar.ETag, StringComparison.Ordinal))
+        {
+            return StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        Response.Headers.ETag = etag.ToString();
+
+        // Private, not public: a shared proxy has no business holding one member's picture to
+        // hand to another client. Short max-age with must-revalidate rather than a long one,
+        // because this URL is stable per user — the freshness that matters comes from the
+        // ETag revalidation above, and from the ?v= cache-buster the client appends when the
+        // picture actually changes.
+        Response.Headers.CacheControl = "private, max-age=300, must-revalidate";
+
+        return File(avatar.Bytes, avatar.ContentType);
     }
 
     [EnableRateLimiting("auth-email")]

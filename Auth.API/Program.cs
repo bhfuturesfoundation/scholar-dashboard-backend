@@ -3,10 +3,14 @@ using Auth.API.HealthChecks;
 using Auth.API.Middleware;
 using Auth.API.Hubs;
 using Auth.API.Services;
+using Auth.Services.Interfaces.News;
+using Auth.Services.Services.News;
 using Auth.Services.Interfaces.Notifications;
 using Auth.Services.Interfaces.Suggestions;
 using Auth.Services.Services.Suggestions;
 using Auth.Services.Services.Notifications;
+using Auth.Services.Interfaces.Games;
+using Auth.Services.Services.Games;
 using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
@@ -68,6 +72,10 @@ builder.Services.AddScoped<IUserService, UserService>();
 
 // Self-service account operations: profile, sessions, and a personal data export.
 builder.Services.AddScoped<IAccountService, AccountService>();
+
+// Profile pictures. Scoped because it writes through the request's DbContext; the image
+// pipeline inside it is stateless and holds nothing between calls.
+builder.Services.AddScoped<IAvatarService, AvatarService>();
 
 // Checked on every authenticated request, so it must be cheap: an in-memory cache in
 // front of Users.TokenVersion. See TokenVersionCache for the multi-instance caveat.
@@ -152,6 +160,17 @@ builder.Services.AddSingleton<INotificationRealtime, SignalRNotificationRealtime
 // always report nobody online.
 builder.Services.AddSingleton<IPresenceTracker, PresenceTracker>();
 
+// ── Comet Arena ──────────────────────────────────────────────────────────────
+//
+// Singletons, and they have to be: a match is live in-memory state shared by everyone
+// in it. A scoped ArenaService would hand each request its own empty world.
+//
+// This is what makes the leaderboard real. The server owns the simulation and does the
+// arithmetic, so a score was never in the client's hands to forge — see GameScore.Verified.
+builder.Services.AddSingleton<IArenaRealtime, SignalRArenaRealtime>();
+builder.Services.AddSingleton<IArenaService, ArenaService>();
+builder.Services.AddHostedService<ArenaTickService>();
+
 // Typed client so the push service gets connection pooling and the standard handler
 // lifetime rather than a socket per send.
 builder.Services.AddHttpClient<IPushSender, WebPushSender>();
@@ -162,6 +181,35 @@ builder.Services.AddHostedService<NotificationSchedulerService>();
 
 // Executes due schedules. Hosted, so it runs whether or not anyone opens the UI.
 builder.Services.AddHostedService<MailingSchedulerService>();
+
+// ── News ─────────────────────────────────────────────────────────────────────
+//
+// Mirrors the foundation's public news page into our own table, replacing what used to be
+// a hardcoded array in the frontend. The widget reads only our copy, so the dashboard does
+// not depend on a third-party site being up during a page load.
+builder.Services.AddHttpClient(NewsScraperService.HttpClientName, client =>
+{
+    // Well short of the hourly poll, so a hung connection cannot occupy the scraper until
+    // the next tick would have started. The page is ~170 KB and normally arrives in under
+    // a second; 30 seconds is slack, not a budget.
+    client.Timeout = TimeSpan.FromSeconds(30);
+
+    // A descriptive User-Agent is manners, and it is also self-interest. Default .NET
+    // agents are widely rate-limited or blocked outright by CDNs, and if this scraper ever
+    // does misbehave, whoever runs that server should be able to tell who we are and reach
+    // us rather than having to block an anonymous client.
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "BHFF-ScholarDashboard/1.0 (+https://www.bhfuturesfoundation.org; news widget)");
+
+    // Squarespace serves Brotli/gzip by default; asking for HTML explicitly keeps a content
+    // negotiator from handing us a JSON or AMP variant of the same page.
+    client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,image/webp,*/*");
+});
+builder.Services.AddScoped<INewsScraperService, NewsScraperService>();
+
+// Daily re-scrape. Hosted so the news stays current whether or not a member of staff ever
+// opens the operations console — the whole failure this replaces was a list nobody updated.
+builder.Services.AddHostedService<NewsScraperBackgroundService>();
 
 // Health checks
 builder.Services.AddHealthChecks()
@@ -295,6 +343,9 @@ app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub
 // already carries /api on some deployments and not on others.
 app.MapHub<NotificationsHub>("/hubs/notifications").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 app.MapHub<NotificationsHub>("/api/hubs/notifications").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
+
+app.MapHub<ArenaHub>("/hubs/arena").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
+app.MapHub<ArenaHub>("/api/hubs/arena").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())
