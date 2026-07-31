@@ -76,6 +76,16 @@ namespace Auth.API.Controllers
 
         // ── Moderation ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Every suggestion, with its author and date, for Admin and Program Manager.
+        /// </summary>
+        [HttpGet("admin")]
+        [Authorize(Roles = AppRoles.JournalOversight)]
+        public async Task<ActionResult<ApiResponse<SuggestionAdminPageDto>>> GetAdminPage(
+            [FromQuery] SuggestionAdminQuery query, CancellationToken ct) =>
+            Ok(ApiResponse<SuggestionAdminPageDto>.SuccessResponse(
+                await _suggestions.GetAdminPageAsync(query, ct), "Suggestions retrieved"));
+
         [HttpPut("{id:int}/status")]
         [Authorize(Roles = AppRoles.JournalOversight)]
         public async Task<ActionResult<ApiResponse<SuggestionDto>>> SetStatus(

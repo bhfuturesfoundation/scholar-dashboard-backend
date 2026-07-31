@@ -113,7 +113,11 @@ namespace Auth.Services.Services.Suggestions
             {
                 UserId = userId,
                 AuthorName = string.IsNullOrWhiteSpace(authorName) ? "A scholar" : authorName,
-                IsAnonymous = request.IsAnonymous,
+
+                // Always attributed. Anonymous posting was removed from the composer; the
+                // column stays so notes written while it existed keep the anonymity they
+                // were promised on the public board.
+                IsAnonymous = false,
                 Body = body,
 
                 // Clamped rather than rejected: a bad colour index is a client bug, and
@@ -262,6 +266,88 @@ namespace Auth.Services.Services.Suggestions
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsHidden, hidden), cancellationToken);
 
             return affected > 0;
+        }
+
+        // ── Staff table ───────────────────────────────────────────────────────
+
+        public async Task<SuggestionAdminPageDto> GetAdminPageAsync(
+            SuggestionAdminQuery query, CancellationToken cancellationToken = default)
+        {
+            var q = _context.Suggestions
+                .AsNoTracking()
+                .Include(s => s.User)
+                .AsQueryable();
+
+            if (!query.IncludeHidden) q = q.Where(s => !s.IsHidden);
+            if (query.Status is { } status) q = q.Where(s => s.Status == status);
+
+            if (query.From is { } from)
+            {
+                // Normalised to UTC before it reaches Npgsql, which rejects a DateTime whose
+                // Kind is Unspecified against a timestamptz column — the usual way a date
+                // filter from a browser blows up in production but not locally.
+                var fromUtc = DateTime.SpecifyKind(from.Date, DateTimeKind.Utc);
+                q = q.Where(s => s.CreatedAt >= fromUtc);
+            }
+
+            if (query.To is { } to)
+            {
+                // Exclusive upper bound on the next day, so "to 5 August" includes the whole
+                // of the 5th rather than only its first instant.
+                var toUtc = DateTime.SpecifyKind(to.Date.AddDays(1), DateTimeKind.Utc);
+                q = q.Where(s => s.CreatedAt < toUtc);
+            }
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                var term = query.Search.Trim();
+                q = q.Where(s =>
+                    EF.Functions.ILike(s.Body, $"%{term}%") ||
+                    EF.Functions.ILike(s.AuthorName, $"%{term}%"));
+            }
+
+            // Counted before paging, so the chips reflect the filtered set rather than the
+            // twenty-five rows currently on screen.
+            var statusCounts = await q
+                .GroupBy(s => s.Status)
+                .Select(g => new { Status = g.Key, Count = g.Count() })
+                .ToListAsync(cancellationToken);
+
+            var total = statusCounts.Sum(c => c.Count);
+
+            var page = Math.Max(1, query.Page);
+            var pageSize = Math.Clamp(query.PageSize, 1, 200);
+
+            var rows = await q
+                .OrderByDescending(s => s.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(s => new SuggestionAdminRowDto
+                {
+                    Id = s.Id,
+                    CreatedAt = s.CreatedAt,
+                    AuthorName = s.AuthorName,
+                    AuthorEmail = s.User.Email ?? string.Empty,
+                    AuthorId = s.UserId,
+                    PostedAnonymously = s.IsAnonymous,
+                    Body = s.Body,
+                    Status = s.Status,
+                    StaffNote = s.StaffNote,
+                    StatusChangedAt = s.StatusChangedAt,
+                    StatusChangedByName = s.StatusChangedByName,
+                    VoteCount = s.VoteCount,
+                    IsHidden = s.IsHidden,
+                })
+                .ToListAsync(cancellationToken);
+
+            return new SuggestionAdminPageDto
+            {
+                Items = rows,
+                TotalCount = total,
+                Page = page,
+                PageSize = pageSize,
+                StatusCounts = statusCounts.ToDictionary(c => c.Status.ToString(), c => c.Count),
+            };
         }
 
         // ── Mapping ───────────────────────────────────────────────────────────

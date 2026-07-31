@@ -31,6 +31,16 @@ namespace Auth.Services.Interfaces.Suggestions
             int id, UpdateSuggestionStatusRequest request, string staffName,
             CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// The staff table: every suggestion with its author and date, filterable and paged.
+        ///
+        /// Separate from GetBoardAsync because the two answer different questions. The board
+        /// is what a scholar sees — capped, ordered for browsing, author withheld where it
+        /// was promised. This is a record: complete, attributable and sortable by when.
+        /// </summary>
+        Task<SuggestionAdminPageDto> GetAdminPageAsync(
+            SuggestionAdminQuery query, CancellationToken cancellationToken = default);
+
         /// <summary>Hides rather than deletes, so a moderation decision stays auditable.</summary>
         Task<bool> SetHiddenAsync(int id, bool hidden, CancellationToken cancellationToken = default);
     }
