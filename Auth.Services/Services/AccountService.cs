@@ -64,11 +64,6 @@ namespace Auth.Services.Services
                               && t.ExpiryTime > DateTime.UtcNow,
                     cancellationToken);
 
-            var externalLogins = (await _userManager.GetLoginsAsync(user))
-                .Select(l => l.LoginProvider)
-                .Distinct()
-                .ToList();
-
             var isScholar = roles.Contains(Models.Constants.AppRoles.User);
 
             return new AccountOverviewDto
@@ -100,7 +95,18 @@ namespace Auth.Services.Services
                 TwoFactorAvailable = false,
 
                 ActiveSessions = activeSessions,
-                ExternalLogins = externalLogins
+
+                // Deliberately always empty.
+                //
+                // ApplicationDbContext calls Ignore<IdentityUserLogin<string>>(), so the table
+                // that would record "this account signs in with Google" is not part of the
+                // model at all — UserManager.GetLoginsAsync therefore throws rather than
+                // returning nothing, which is what made GET /api/auth/me a 500.
+                //
+                // The OAuth flow links by email rather than by stored login, so there is
+                // nothing to report. Kept on the DTO so the field does not have to be
+                // reintroduced if that changes.
+                ExternalLogins = new List<string>()
             };
         }
 

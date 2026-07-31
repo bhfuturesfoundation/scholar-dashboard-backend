@@ -232,8 +232,21 @@ namespace Auth.API.Extensions
                         var accessToken = context.Request.Query["access_token"];
                         var path = context.HttpContext.Request.Path;
 
-                        if (!string.IsNullOrEmpty(accessToken) &&
-                            (path.StartsWithSegments("/hubs/minigames") || path.StartsWithSegments("/api/hubs/minigames")))
+                        // Any hub, not a named one.
+                        //
+                        // A browser cannot set an Authorization header on a WebSocket or an
+                        // EventSource, so SignalR sends the token as ?access_token= instead.
+                        // This check used to name /hubs/minigames explicitly, which meant the
+                        // next hub anyone added would 401 on connect with no obvious cause —
+                        // exactly what happened to /hubs/notifications.
+                        //
+                        // Still scoped to hub paths: accepting a token from the query string
+                        // everywhere would put credentials in URLs, and therefore in access
+                        // logs and Referer headers, across the whole API.
+                        var isHubPath =
+                            path.StartsWithSegments("/hubs") || path.StartsWithSegments("/api/hubs");
+
+                        if (!string.IsNullOrEmpty(accessToken) && isHubPath)
                         {
                             context.Token = accessToken;
                             return Task.CompletedTask;

@@ -130,3 +130,34 @@ public class TokenVersionTests
         Assert.False(await cache.IsTokenCurrentAsync("u1", 0));
     }
 }
+
+/// <summary>
+/// Pins the two production faults that shipped with the settings screen, so neither can
+/// come back quietly.
+/// </summary>
+public class AccountOverviewRegressionTests
+{
+    [Fact]
+    public void IdentityUserLogin_IsNotPartOfTheModel()
+    {
+        // This is why AccountService must never call UserManager.GetLoginsAsync: the
+        // context calls Ignore<IdentityUserLogin<string>>(), so that call queries an
+        // unmapped entity and throws — which is what turned GET /api/auth/me into a 500.
+        //
+        // If someone later maps it, this test fails and points at the comment in
+        // AccountService that will then be out of date.
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase($"model-{Guid.NewGuid()}")
+            .Options;
+
+        using var context = new ApplicationDbContext(options);
+
+        var mapped = context.Model
+            .GetEntityTypes()
+            .Any(e => e.ClrType.Name.StartsWith("IdentityUserLogin", StringComparison.Ordinal));
+
+        Assert.False(mapped,
+            "IdentityUserLogin is mapped again — AccountService.GetOverviewAsync can now use " +
+            "GetLoginsAsync, and its comment about external logins is stale.");
+    }
+}
