@@ -9,17 +9,29 @@ namespace Auth.Services.Services.Games
     /// by exactly one fixed step. That is what lets the whole game be unit-tested: a match
     /// is just a loop over this, and a disputed score can be re-run from its seed.
     ///
-    /// THE GAME
-    /// --------
-    /// A circular arena. Orbs spawn and are worth more the closer to the edge they are.
-    /// Comets sweep across from the rim. Collecting orbs without being hit builds a combo
-    /// multiplier; a comet hit resets it and scatters some of what you were carrying.
+    /// THE GAME, AND WHY IT IS SHAPED THIS WAY
+    /// ---------------------------------------
+    /// A circular arena with a bank at its centre. Orbs are worth more the nearer the rim
+    /// they spawn, and the rim is where the comets are.
     ///
-    /// The combo is the whole design. Without it the game is a collection-rate contest that
-    /// tops out at how fast you can move, and every good player converges on the same score.
-    /// With it, the interesting decision is whether to go for the high-value orb near the
-    /// rim while carrying a 5× multiplier you would lose — which is a decision, and
-    /// decisions are what make a high score worth chasing.
+    /// Collecting an orb does NOT score. It goes into a pouch you have to carry back to the
+    /// bank and deposit. That is the entire design, and it is a correction of a first
+    /// version that scored on contact — which made every decision "walk to the nearest dot"
+    /// and gave the player nothing to lose in the moment.
+    ///
+    /// Carry-and-bank produces the loop everything else hangs off:
+    ///
+    ///   * Greed has a cost that grows. The more you hold, the more a hit takes, so the
+    ///     right moment to go home is a judgement that changes second to second.
+    ///   * The map has meaning. Value is at the edge, safety is at the middle, and the
+    ///     distance between them is the whole risk curve.
+    ///   * Losing is legible. You watch a number fall out of your hands instead of a
+    ///     multiplier quietly resetting.
+    ///
+    /// Comets are telegraphed for about a second before they are lethal, because a random
+    /// threat with no warning is noise rather than difficulty — it can only be reacted to,
+    /// never planned around. Dodging one closely pays a combo bonus, so the dangerous line
+    /// is also the profitable one and camping the rim is not the optimal strategy.
     /// </summary>
     public static class ArenaSimulation
     {
@@ -59,6 +71,45 @@ namespace Auth.Services.Services.Games
         public const int StunTicks = TicksPerSecond;          // one second
         public const int DashCooldownTicks = 2 * TicksPerSecond;
         public const float DashImpulse = 620f;
+
+        /// <summary>
+        /// The bank at the centre. Stand in it to deposit what you are carrying.
+        ///
+        /// Deliberately large and deliberately in the middle: it has to be somewhere you pass
+        /// through constantly, or the loop becomes a chore rather than a decision. The tension
+        /// is not "can I find the bank", it is "is one more orb worth the walk".
+        /// </summary>
+        public const float BankRadius = 95f;
+
+        /// <summary>
+        /// Carried points deposited per tick while inside the bank.
+        ///
+        /// Not instant. A trickle means a big pouch takes a moment to bank, so somebody who
+        /// hoarded 400 points has to actually commit to standing still — which is the moment
+        /// a rival in versus can shove them out of the circle.
+        /// </summary>
+        public const int BankRatePerTick = 8;
+
+        /// <summary>
+        /// Fraction of the pouch lost to a comet.
+        ///
+        /// Not all of it. Wiping a run to zero makes people stop playing; losing most of it
+        /// stings enough to change behaviour while leaving a comeback on the table.
+        /// </summary>
+        public const float CometLossFraction = 0.65f;
+
+        /// <summary>
+        /// How long a comet is a warning line before it becomes lethal.
+        ///
+        /// Just under a second — long enough to plan a route around, short enough that a
+        /// greedy player deep in the danger zone still cannot always make it.
+        /// </summary>
+        public const int CometWarningTicks = 26;
+
+        /// <summary>Passing this close to a live comet without being hit counts as a near miss.</summary>
+        public const float NearMissRadius = 58f;
+
+        public const int NearMissFlashTicks = 12;
 
         public const float CometRadius = 24f;
         public const float CometMinSpeed = 260f;
@@ -173,7 +224,12 @@ namespace Auth.Services.Services.Games
             MoveComets(state);
             SpawnComets(state);
             ResolveOrbs(state);
+
+            // Near misses are checked BEFORE hits, or a comet that is about to hit you also
+            // pays a near-miss bonus on the way in.
+            ResolveNearMisses(state);
             ResolveCometHits(state);
+            ResolveBanking(state);
 
             if (state.Mode == ArenaMode.Versus) ResolvePlayerCollisions(state);
 
@@ -231,6 +287,15 @@ namespace Auth.Services.Services.Games
             for (var i = state.Comets.Count - 1; i >= 0; i--)
             {
                 var comet = state.Comets[i];
+
+                // Still winding up. It sits off the rim as a warning line and cannot move
+                // or hit anyone yet.
+                if (comet.WarningTicks > 0)
+                {
+                    comet.WarningTicks--;
+                    continue;
+                }
+
                 comet.X += comet.VelocityX * TickSeconds;
                 comet.Y += comet.VelocityY * TickSeconds;
 
@@ -277,6 +342,14 @@ namespace Auth.Services.Services.Games
                 VelocityX = dx / length * speed,
                 VelocityY = dy / length * speed,
                 Radius = CometRadius,
+
+                // Roughly a second of warning before it is lethal. Long enough to route
+                // around, short enough that somebody deep in the danger zone with a full
+                // pouch still cannot always get out — which is the moment the whole
+                // risk/reward design exists to create.
+                WarningTicks = CometWarningTicks,
+                DirectionX = dx / length,
+                DirectionY = dy / length,
             });
         }
 
@@ -296,7 +369,9 @@ namespace Auth.Services.Services.Games
                     if (player.Combo > player.BestCombo) player.BestCombo = player.Combo;
                     player.OrbsCollected++;
 
-                    player.Score += orb.Value * Multiplier(player.Combo);
+                    // Into the pouch, NOT onto the score. Nothing is safe until it is banked.
+                    player.Carried += orb.Value * Multiplier(player.Combo);
+                    if (player.Carried > player.MostCarried) player.MostCarried = player.Carried;
 
                     state.Orbs.RemoveAt(i);
                     SpawnOrb(state);
@@ -316,19 +391,96 @@ namespace Auth.Services.Services.Games
 
                 foreach (var comet in state.Comets)
                 {
+                    if (comet.WarningTicks > 0) continue;
                     if (!Overlaps(player.X, player.Y, PlayerRadius, comet.X, comet.Y, comet.Radius)) continue;
 
                     player.StunTicks = StunTicks;
                     player.CometHits++;
-
-                    // The combo is the punishment, not the points. Taking score away feels
-                    // arbitrary and makes a bad run unrecoverable; losing the multiplier
-                    // costs you the *next* thirty seconds, which is the interesting loss.
                     player.Combo = 0;
+
+                    // Takes most of the pouch, never the bank. Banked points are earned and
+                    // final; carried points are the stake. Wiping the whole run would make a
+                    // bad minute unrecoverable and people would stop playing — losing most of
+                    // what you were holding stings enough to change the next decision while
+                    // leaving a comeback available.
+                    player.Carried -= (int)(player.Carried * CometLossFraction);
 
                     // Knocked along the comet's path, so a hit visibly comes from somewhere.
                     player.VelocityX += comet.VelocityX * 0.55f;
                     player.VelocityY += comet.VelocityY * 0.55f;
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Deposits carried points for anyone standing in the bank.
+        ///
+        /// A trickle rather than an instant transfer, so a big pouch is a commitment: the
+        /// player who hoarded four hundred points has to stand still long enough to be
+        /// shoved out of the circle in versus, or to watch a comet cross the middle in solo.
+        /// Banking being *slow* is what stops the optimal play from being a lap of the rim
+        /// followed by one safe tap on the centre.
+        /// </summary>
+        private static void ResolveBanking(ArenaState state)
+        {
+            foreach (var player in state.Players)
+            {
+                if (player.NearMissFlashTicks > 0) player.NearMissFlashTicks--;
+
+                var inBank = player.X * player.X + player.Y * player.Y <= BankRadius * BankRadius;
+
+                // Stunned in the bank still banks. Being knocked into safety is a lucky
+                // break, and taking it away would read as a bug rather than a rule.
+                if (!inBank || player.Carried <= 0)
+                {
+                    player.BankingTicks = 0;
+                    continue;
+                }
+
+                player.BankingTicks++;
+
+                var deposited = Math.Min(player.Carried, BankRatePerTick);
+                player.Carried -= deposited;
+                player.Score += deposited;
+            }
+        }
+
+        /// <summary>
+        /// Pays a combo step for threading past a live comet.
+        ///
+        /// Without this the dominant strategy is to hover near the rim away from the middle
+        /// and pick up whatever drifts close, because danger is pure downside. Making a
+        /// close dodge *build* the multiplier means the profitable line and the dangerous
+        /// line are the same line — which is the only thing that makes the high-value orbs
+        /// out by the comets worth designing at all.
+        /// </summary>
+        private static void ResolveNearMisses(ArenaState state)
+        {
+            foreach (var player in state.Players)
+            {
+                if (player.StunTicks > 0 || player.NearMissFlashTicks > 0) continue;
+
+                foreach (var comet in state.Comets)
+                {
+                    // A telegraph is not a threat, so brushing one is not an achievement.
+                    if (comet.WarningTicks > 0) continue;
+
+                    var dx = player.X - comet.X;
+                    var dy = player.Y - comet.Y;
+                    var distance = MathF.Sqrt(dx * dx + dy * dy);
+
+                    var hitRange = PlayerRadius + comet.Radius;
+                    var missRange = hitRange + NearMissRadius;
+
+                    // Inside hitRange is a hit, resolved on the next stage. The band just
+                    // outside it is the near miss.
+                    if (distance <= hitRange || distance > missRange) continue;
+
+                    player.NearMisses++;
+                    player.NearMissFlashTicks = NearMissFlashTicks;
+                    player.Combo++;
+                    if (player.Combo > player.BestCombo) player.BestCombo = player.Combo;
                     break;
                 }
             }
@@ -380,9 +532,14 @@ namespace Auth.Services.Services.Games
             // out it landed — the risk and the reward come from the same number.
             var angle = NextFloat(state) * MathF.PI * 2f;
             var t = NextFloat(state);
-            var radius = MathF.Sqrt(t) * (ArenaRadius - 60f);
 
-            var normalised = radius / (ArenaRadius - 60f);
+            // Never inside the bank. An orb there would be free money collected while
+            // already standing on the safest tile in the game, which undercuts the entire
+            // carry-and-deposit loop.
+            var minRadius = BankRadius + OrbRadius * 2;
+            var radius = minRadius + MathF.Sqrt(t) * (ArenaRadius - 60f - minRadius);
+
+            var normalised = (radius - minRadius) / MathF.Max(1f, ArenaRadius - 60f - minRadius);
 
             state.Orbs.Add(new ArenaOrb
             {

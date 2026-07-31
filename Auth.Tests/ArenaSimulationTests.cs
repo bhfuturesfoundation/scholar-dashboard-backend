@@ -16,6 +16,16 @@ namespace Auth.Tests;
 /// </summary>
 public class ArenaSimulationTests
 {
+    /// <summary>A comet that is already lethal, i.e. past its telegraph.</summary>
+    private static ArenaComet LiveComet(float x, float y) => new()
+    {
+        Id = 1,
+        X = x,
+        Y = y,
+        Radius = ArenaSimulation.CometRadius,
+        WarningTicks = 0,
+    };
+
     private static ArenaState Running(ArenaMode mode = ArenaMode.Solo, uint seed = 12345)
     {
         var state = ArenaSimulation.CreateSession("test", mode, seed);
@@ -150,46 +160,213 @@ public class ArenaSimulationTests
     }
 
     [Fact]
-    public void CollectingAnOrbScoresAndAdvancesTheCombo()
+    public void CollectingAnOrbFillsThePouchAndNotTheScore()
     {
+        // The central rule. Nothing counts until it is banked, which is what gives the
+        // player something to lose while they are out where the good orbs are.
         var state = Running();
         var player = state.Players[0];
 
-        // Put an orb exactly on the player.
         state.Orbs.Clear();
         state.Orbs.Add(new ArenaOrb { Id = 1, X = player.X, Y = player.Y, Value = 10 });
 
         ArenaSimulation.Tick(state);
 
-        Assert.Equal(10, player.Score);
+        Assert.Equal(0, player.Score);
+        Assert.Equal(10, player.Carried);
         Assert.Equal(1, player.Combo);
         Assert.Equal(1, player.OrbsCollected);
     }
 
     [Fact]
-    public void ACometHitResetsTheComboButNeverTakesPoints()
+    public void StandingInTheBankDepositsThePouch()
     {
-        // Deliberate design: losing the multiplier costs you the next thirty seconds, which
-        // is recoverable. Taking points away makes a bad run unrecoverable and people stop
-        // playing.
+        var state = Running();
+        var player = state.Players[0];
+
+        player.X = 0;
+        player.Y = 0;
+        player.Carried = 100;
+
+        ArenaSimulation.Tick(state);
+
+        Assert.True(player.Score > 0);
+        Assert.True(player.Carried < 100);
+        Assert.Equal(100, player.Score + player.Carried);
+    }
+
+    [Fact]
+    public void BankingIsGradual_SoAFullPouchIsACommitment()
+    {
+        // Instant banking would make the optimal play a lap of the rim and one safe tap on
+        // the centre. Taking time is what makes a big pouch a decision.
+        var state = Running();
+        var player = state.Players[0];
+
+        player.X = 0;
+        player.Y = 0;
+        player.Carried = 500;
+
+        ArenaSimulation.Tick(state);
+
+        Assert.True(player.Carried > 0, "500 points should not bank in a single tick.");
+    }
+
+    [Fact]
+    public void BankingOutsideTheBankDoesNothing()
+    {
+        var state = Running();
+        var player = state.Players[0];
+
+        player.X = ArenaSimulation.BankRadius + 60;
+        player.Y = 0;
+        player.Carried = 100;
+
+        ArenaSimulation.Tick(state);
+
+        Assert.Equal(0, player.Score);
+        Assert.Equal(100, player.Carried);
+    }
+
+    [Fact]
+    public void OrbsNeverSpawnInsideTheBank()
+    {
+        // An orb in the bank is free money collected while already standing on the safest
+        // tile in the game, which undercuts the whole carry-and-deposit loop.
+        var state = Running();
+
+        for (var i = 0; i < 600; i++) ArenaSimulation.Tick(state);
+
+        foreach (var orb in state.Orbs)
+        {
+            var distance = MathF.Sqrt(orb.X * orb.X + orb.Y * orb.Y);
+            Assert.True(distance > ArenaSimulation.BankRadius,
+                $"Orb spawned inside the bank at radius {distance:F1}.");
+        }
+    }
+
+    [Fact]
+    public void ACometHitTakesThePouchButNeverTheBank()
+    {
+        // Banked points are earned and final; carried points are the stake. If a hit could
+        // reach the bank, a bad minute would be unrecoverable and people would stop playing.
         var state = Running();
         var player = state.Players[0];
 
         player.Score = 500;
+        player.Carried = 200;
         player.Combo = 12;
+
+        state.Comets.Clear();
+        state.Comets.Add(LiveComet(player.X, player.Y));
+
+        ArenaSimulation.Tick(state);
+
+        Assert.Equal(500, player.Score);
+        Assert.True(player.Carried < 200, "A hit must cost the pouch.");
+        Assert.True(player.Carried > 0, "A hit must not wipe the pouch entirely.");
+        Assert.Equal(0, player.Combo);
+        Assert.True(player.StunTicks > 0);
+    }
+
+    // ── Telegraphing ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ATelegraphedCometCannotHit()
+    {
+        // A threat with no warning is noise rather than difficulty — it can only be reacted
+        // to, never planned around.
+        var state = Running();
+        var player = state.Players[0];
+        player.Carried = 100;
 
         state.Comets.Clear();
         state.Comets.Add(new ArenaComet
         {
-            Id = 1, X = player.X, Y = player.Y,
-            Radius = ArenaSimulation.CometRadius, VelocityX = 0, VelocityY = 0,
+            Id = 1, X = player.X, Y = player.Y, Radius = ArenaSimulation.CometRadius,
+            WarningTicks = ArenaSimulation.CometWarningTicks,
         });
 
         ArenaSimulation.Tick(state);
 
-        Assert.Equal(0, player.Combo);
-        Assert.Equal(500, player.Score);
-        Assert.True(player.StunTicks > 0);
+        Assert.Equal(0, player.StunTicks);
+        Assert.Equal(100, player.Carried);
+    }
+
+    [Fact]
+    public void ATelegraphedCometDoesNotMoveUntilItIsLive()
+    {
+        var state = Running();
+
+        state.Comets.Clear();
+        state.Comets.Add(new ArenaComet
+        {
+            Id = 1, X = 400, Y = 0, VelocityX = -300, VelocityY = 0,
+            Radius = ArenaSimulation.CometRadius,
+            WarningTicks = ArenaSimulation.CometWarningTicks,
+        });
+
+        ArenaSimulation.Tick(state);
+
+        Assert.Equal(400, state.Comets[0].X);
+    }
+
+    // ── Near misses ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ThreadingPastALiveCometBuildsTheCombo()
+    {
+        // Without this, danger is pure downside and the dominant strategy is hovering at
+        // the rim collecting whatever drifts close.
+        var state = Running();
+        var player = state.Players[0];
+
+        var justOutsideHit = ArenaSimulation.PlayerRadius + ArenaSimulation.CometRadius + 20;
+        state.Comets.Clear();
+        state.Comets.Add(LiveComet(player.X + justOutsideHit, player.Y));
+
+        ArenaSimulation.Tick(state);
+
+        Assert.Equal(1, player.NearMisses);
+        Assert.Equal(1, player.Combo);
+        Assert.Equal(0, player.StunTicks);
+    }
+
+    [Fact]
+    public void ANearMissDoesNotRetriggerEveryTick()
+    {
+        // A comet drifting slowly past would otherwise pay a combo step thirty times a second.
+        var state = Running();
+        var player = state.Players[0];
+
+        var justOutsideHit = ArenaSimulation.PlayerRadius + ArenaSimulation.CometRadius + 20;
+        state.Comets.Clear();
+        state.Comets.Add(LiveComet(player.X + justOutsideHit, player.Y));
+
+        for (var i = 0; i < 5; i++) ArenaSimulation.Tick(state);
+
+        Assert.Equal(1, player.NearMisses);
+    }
+
+    [Fact]
+    public void ATelegraphedCometPaysNoNearMiss()
+    {
+        // Brushing a warning line is not an achievement.
+        var state = Running();
+        var player = state.Players[0];
+
+        var justOutsideHit = ArenaSimulation.PlayerRadius + ArenaSimulation.CometRadius + 20;
+        state.Comets.Clear();
+        state.Comets.Add(new ArenaComet
+        {
+            Id = 1, X = player.X + justOutsideHit, Y = player.Y,
+            Radius = ArenaSimulation.CometRadius,
+            WarningTicks = ArenaSimulation.CometWarningTicks,
+        });
+
+        ArenaSimulation.Tick(state);
+
+        Assert.Equal(0, player.NearMisses);
     }
 
     [Fact]
@@ -205,7 +382,7 @@ public class ArenaSimulationTests
 
         ArenaSimulation.Tick(state);
 
-        Assert.Equal(0, player.Score);
+        Assert.Equal(0, player.Carried);
         Assert.Single(state.Orbs);
     }
 
@@ -225,10 +402,7 @@ public class ArenaSimulationTests
         var peak = player.BestCombo;
         Assert.True(peak >= 5);
 
-        state.Comets.Add(new ArenaComet
-        {
-            Id = 99, X = player.X, Y = player.Y, Radius = ArenaSimulation.CometRadius,
-        });
+        state.Comets.Add(LiveComet(player.X, player.Y));
         ArenaSimulation.Tick(state);
 
         Assert.Equal(0, player.Combo);

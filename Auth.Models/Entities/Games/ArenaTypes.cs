@@ -96,7 +96,30 @@ namespace Auth.Models.Entities.Games
         /// <summary>Ticks remaining stunned after a comet hit. Cannot move or collect.</summary>
         public int StunTicks { get; set; }
 
+        /// <summary>
+        /// Banked. Safe. This is what goes on the leaderboard.
+        /// </summary>
         public int Score { get; set; }
+
+        /// <summary>
+        /// Collected but not yet deposited.
+        ///
+        /// THE CENTRAL MECHANIC. Orbs no longer score on contact — they go into a pouch you
+        /// have to carry back to the bank at the centre. That single change is what turns
+        /// this from "walk to the nearest dot" into a game: every second you stay out is a
+        /// second you are risking everything you are holding, and the further out the good
+        /// orbs are, the longer the walk home.
+        ///
+        /// A comet hit scatters most of it. Now losing has a number attached and you watch
+        /// it happen, instead of a multiplier quietly resetting.
+        /// </summary>
+        public int Carried { get; set; }
+
+        /// <summary>Largest amount ever carried at once. A bragging stat on the results card.</summary>
+        public int MostCarried { get; set; }
+
+        /// <summary>Ticks spent inside the bank on this visit, for the deposit animation.</summary>
+        public int BankingTicks { get; set; }
 
         /// <summary>
         /// Consecutive orbs collected without being hit. Drives the multiplier, and is the
@@ -107,6 +130,18 @@ namespace Auth.Models.Entities.Games
         public int BestCombo { get; set; }
         public int OrbsCollected { get; set; }
         public int CometHits { get; set; }
+
+        /// <summary>
+        /// Comets dodged by a hair.
+        ///
+        /// Rewarding a near miss is what stops the optimal strategy being "hide at the
+        /// edge and wait". It makes the dangerous line the profitable one, which is the
+        /// whole point of putting the valuable orbs where the comets are.
+        /// </summary>
+        public int NearMisses { get; set; }
+
+        /// <summary>Set on the tick a near miss happens, so the client can react to it.</summary>
+        public int NearMissFlashTicks { get; set; }
 
         /// <summary>False once they disconnect; they stay in the state so the final score is recorded.</summary>
         public bool Connected { get; set; } = true;
@@ -125,6 +160,20 @@ namespace Auth.Models.Entities.Games
     public sealed class ArenaComet
     {
         public int Id { get; set; }
+
+        /// <summary>
+        /// Ticks until this comet actually enters play.
+        ///
+        /// While positive the comet is a telegraph — a warning line the client draws across
+        /// its future path — and it cannot hit anyone. Random threats with no warning are
+        /// not difficulty, they are noise: the player can only react, never plan. A short
+        /// wind-up turns the same comet into information you can use.
+        /// </summary>
+        public int WarningTicks { get; set; }
+
+        /// <summary>Where the telegraph points. Sent so the client can draw the line.</summary>
+        public float DirectionX { get; set; }
+        public float DirectionY { get; set; }
         public float X { get; set; }
         public float Y { get; set; }
         public float VelocityX { get; set; }

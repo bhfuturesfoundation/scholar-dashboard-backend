@@ -242,6 +242,13 @@ namespace Auth.Services.Services.Games
                 x = (int)p.X,
                 y = (int)p.Y,
                 s = p.Score,
+
+                // The pouch. The client draws this separately from the banked score, so a
+                // player can see what is at stake without doing arithmetic.
+                ca = p.Carried,
+                bk = p.BankingTicks,
+                nm = p.NearMissFlashTicks,
+
                 cb = p.Combo,
                 m = ArenaSimulation.Multiplier(p.Combo),
                 st = p.StunTicks,
@@ -249,7 +256,19 @@ namespace Auth.Services.Services.Games
                 on = p.Connected,
             }),
             o = state.Orbs.Select(o => new { i = o.Id, x = (int)o.X, y = (int)o.Y, v = o.Value }),
-            c = state.Comets.Select(c => new { i = c.Id, x = (int)c.X, y = (int)c.Y, r = (int)c.Radius }),
+            c = state.Comets.Select(c => new
+            {
+                i = c.Id,
+                x = (int)c.X,
+                y = (int)c.Y,
+                r = (int)c.Radius,
+
+                // Above zero this is a telegraph, not a comet: the client draws a warning
+                // line along (dx, dy) instead of a solid body.
+                w = c.WarningTicks,
+                dx = (int)(c.DirectionX * 100),
+                dy = (int)(c.DirectionY * 100),
+            }),
         };
 
         /// <summary>
@@ -315,6 +334,13 @@ namespace Auth.Services.Services.Games
                         bestCombo = p.BestCombo,
                         orbs = p.OrbsCollected,
                         hits = p.CometHits,
+                        nearMisses = p.NearMisses,
+
+                        // What they were still holding when time ran out. Never added to the
+                        // score — the last thing the game should teach is that hoarding to
+                        // the buzzer works.
+                        lost = p.Carried,
+                        mostCarried = p.MostCarried,
                     }),
             }, cancellationToken);
         }
