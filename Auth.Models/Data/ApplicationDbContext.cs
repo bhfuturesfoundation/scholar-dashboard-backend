@@ -4,6 +4,7 @@ using Auth.Models.Entities.Engagement;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Mailing;
 using Auth.Models.Entities.Notifications;
+using Auth.Models.Entities.Suggestions;
 using Auth.Models.Entities.Operations;
 using Auth.Models.Entities.Scholars;
 using Microsoft.AspNetCore.Identity;
@@ -58,6 +59,10 @@ namespace Auth.Models.Data
         public DbSet<NotificationPreference> NotificationPreferences { get; set; }
         public DbSet<Auth.Models.Entities.Notifications.PushSubscription> PushSubscriptions { get; set; }
         public DbSet<Announcement> Announcements { get; set; }
+
+        // Suggestion board
+        public DbSet<Suggestion> Suggestions { get; set; }
+        public DbSet<SuggestionVote> SuggestionVotes { get; set; }
 
         // Scholar lifecycle
         public DbSet<ScholarGeneration> ScholarGenerations { get; set; }
@@ -225,6 +230,7 @@ namespace Auth.Models.Data
             ConfigureScholarLifecycle(builder);
             ConfigureMailing(builder);
             ConfigureNotifications(builder);
+            ConfigureSuggestions(builder);
         }
 
         /// <summary>Badges and peer recognition.</summary>
@@ -354,6 +360,49 @@ namespace Auth.Models.Data
             builder.Entity<Announcement>()
                 .Property(a => a.Title)
                 .HasMaxLength(200);
+        }
+
+
+        /// <summary>The suggestion board and its votes.</summary>
+        private static void ConfigureSuggestions(ModelBuilder builder)
+        {
+            builder.Entity<Suggestion>()
+                .HasIndex(s => new { s.IsHidden, s.CreatedAt });
+
+            builder.Entity<Suggestion>()
+                .Property(s => s.Body)
+                .HasMaxLength(500);
+
+            builder.Entity<Suggestion>()
+                .Property(s => s.AuthorName)
+                .HasMaxLength(200);
+
+            // Cascade: a deleted account takes its own suggestions with it. Unlike kudos —
+            // which are somebody else's statement about you and therefore survive — a
+            // suggestion is entirely the author's own.
+            builder.Entity<Suggestion>()
+                .HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One vote per person per suggestion, enforced by the database rather than by a
+            // check-then-insert that two tabs can race past.
+            builder.Entity<SuggestionVote>()
+                .HasIndex(v => new { v.SuggestionId, v.UserId })
+                .IsUnique();
+
+            builder.Entity<SuggestionVote>()
+                .HasOne(v => v.Suggestion)
+                .WithMany(s => s.Votes)
+                .HasForeignKey(v => v.SuggestionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<SuggestionVote>()
+                .HasOne(v => v.User)
+                .WithMany()
+                .HasForeignKey(v => v.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
 
         /// <summary>Generations, cohort status and revertable promotion batches.</summary>

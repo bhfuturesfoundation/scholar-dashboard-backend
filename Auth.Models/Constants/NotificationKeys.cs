@@ -53,6 +53,9 @@ namespace Auth.Models.Constants
         /// <summary>Params: statusLabel.</summary>
         public const string StatusChanged = "mentorship.statusChanged";
 
+        /// <summary>Params: status, excerpt. Sent to the author when staff triage it.</summary>
+        public const string SuggestionStatusChanged = "suggestion.statusChanged";
+
         // ── Broadcast ─────────────────────────────────────────────────────────
         /// <summary>Params: title, body. Written by staff, not translated.</summary>
         public const string Announcement = "announcement.custom";
@@ -84,6 +87,8 @@ namespace Auth.Models.Constants
                 [MenteeSubmitted] = NotificationCategory.Mentorship,
                 [StatusChanged] = NotificationCategory.Mentorship,
 
+                [SuggestionStatusChanged] = NotificationCategory.Mentorship,
+
                 [Announcement] = NotificationCategory.Announcement,
 
                 [Welcome] = NotificationCategory.System,
@@ -110,6 +115,8 @@ namespace Auth.Models.Constants
                 [JournalReviewed] = "/journal",
                 [MenteeSubmitted] = "/mentor/journals",
                 [StatusChanged] = "/progress",
+
+                [SuggestionStatusChanged] = "/suggestions",
 
                 [Welcome] = "/",
             };

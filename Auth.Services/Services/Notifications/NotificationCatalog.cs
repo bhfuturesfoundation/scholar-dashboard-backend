@@ -72,6 +72,10 @@ namespace Auth.Services.Services.Notifications
                 "Your status is now {statusLabel}",
                 "Your standing in the programme has been updated to {statusLabel}."),
 
+            [NotificationKeys.SuggestionStatusChanged] = new(
+                "Your suggestion is now {status}",
+                "Your suggestion \"{excerpt}\" has been moved to {status}."),
+
             [NotificationKeys.Announcement] = new(
                 "{title}",
                 "{body}"),
@@ -136,6 +140,10 @@ namespace Auth.Services.Services.Notifications
             [NotificationKeys.StatusChanged] = new(
                 "Vaš status je sada: {statusLabel}",
                 "Vaš status u programu promijenjen je u: {statusLabel}."),
+
+            [NotificationKeys.SuggestionStatusChanged] = new(
+                "Vaš prijedlog je sada: {status}",
+                "Vaš prijedlog \"{excerpt}\" prebačen je u status: {status}."),
 
             [NotificationKeys.Announcement] = new(
                 "{title}",

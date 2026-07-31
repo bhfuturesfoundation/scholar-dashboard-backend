@@ -24,6 +24,7 @@ namespace Auth.Services.Services
         private readonly ApplicationDbContext _context;
         private readonly UserManager<User> _userManager;
         private readonly ITokenService _tokenService;
+        private readonly ITokenVersionCache _tokenVersions;
         private readonly IAuditService _auditService;
         private readonly ILogger<AccountService> _logger;
 
@@ -31,12 +32,14 @@ namespace Auth.Services.Services
             ApplicationDbContext context,
             UserManager<User> userManager,
             ITokenService tokenService,
+            ITokenVersionCache tokenVersions,
             IAuditService auditService,
             ILogger<AccountService> logger)
         {
             _context = context;
             _userManager = userManager;
             _tokenService = tokenService;
+            _tokenVersions = tokenVersions;
             _auditService = auditService;
             _logger = logger;
         }
@@ -168,6 +171,20 @@ namespace Auth.Services.Services
 
             await _tokenService.RevokeAllRefreshTokensAsync(
                 userId, ipAddress, "Signed out of all devices by the account holder");
+
+            // Revoking refresh tokens only stops renewal. Bumping the token version is what
+            // kills the access tokens already out there: every one of them carries the
+            // generation it was minted under, and authentication now rejects a mismatch.
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            if (user is not null)
+            {
+                user.TokenVersion += 1;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            // Evict immediately so the very next request re-reads it rather than waiting for
+            // the cache entry to lapse.
+            _tokenVersions.Invalidate(userId);
 
             await _auditService.LogAsync(
                 "Account.SignedOutEverywhere",

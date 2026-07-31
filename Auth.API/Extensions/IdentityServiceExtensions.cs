@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Auth.API.Helpers;
 using Auth.Models.Data;
 using Auth.Models.Entities;
@@ -94,6 +95,46 @@ namespace Auth.API.Extensions
 
                 options.Events = new JwtBearerEvents
                 {
+                    /// <summary>
+                    /// Rejects an otherwise-valid token whose generation has been superseded.
+                    ///
+                    /// A JWT is, by design, valid until it expires — the server does not get a
+                    /// say. That makes "sign out everywhere" a half-measure unless something
+                    /// checks: revoking refresh tokens stops renewal, but the access token
+                    /// already sitting in a shared browser keeps working. This closes that.
+                    ///
+                    /// The check is a memory-cache lookup in the steady state, so it costs a
+                    /// dictionary read per request rather than a database round trip.
+                    /// </summary>
+                    OnTokenValidated = async context =>
+                    {
+                        var principal = context.Principal;
+                        if (principal is null) return;
+
+                        var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier)
+                                     ?? principal.FindFirstValue(JwtRegisteredClaimNames.Sub);
+
+                        if (string.IsNullOrEmpty(userId)) return;
+
+                        var versions = context.HttpContext.RequestServices
+                            .GetRequiredService<ITokenVersionCache>();
+
+                        // A token with no "tv" claim predates this mechanism. Treated as
+                        // version 0, which is what every existing account holds, so tokens
+                        // issued before this deployed keep working until they expire.
+                        _ = int.TryParse(principal.FindFirstValue("tv"), out var tokenVersion);
+
+                        if (await versions.IsTokenCurrentAsync(userId, tokenVersion)) return;
+
+                        context.Fail("This session was ended. Please sign in again.");
+
+                        context.HttpContext.RequestServices
+                            .GetRequiredService<ILogger<JwtBearerEvents>>()
+                            .LogInformation(
+                                "Rejected a superseded access token for {UserId} (tv {Version}).",
+                                userId, tokenVersion);
+                    },
+
                     OnAuthenticationFailed = async context =>
                     {
                         /// Check if JWT is expired

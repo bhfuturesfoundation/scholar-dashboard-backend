@@ -47,7 +47,13 @@ namespace Auth.Services.Services
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
                 new Claim("FirstName", user.FirstName ?? string.Empty),
-                new Claim("LastName", user.LastName ?? string.Empty)
+                new Claim("LastName", user.LastName ?? string.Empty),
+
+                // The token generation this was minted under. Authentication compares it
+                // against the user's current TokenVersion and rejects a mismatch, which is
+                // how "sign out everywhere" takes effect immediately rather than whenever
+                // the access token happens to expire.
+                new Claim("tv", user.TokenVersion.ToString())
             }
             .Union(userClaims)
             .Union(roleClaims);

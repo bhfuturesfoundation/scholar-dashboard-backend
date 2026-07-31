@@ -4,6 +4,8 @@ using Auth.API.Middleware;
 using Auth.API.Hubs;
 using Auth.API.Services;
 using Auth.Services.Interfaces.Notifications;
+using Auth.Services.Interfaces.Suggestions;
+using Auth.Services.Services.Suggestions;
 using Auth.Services.Services.Notifications;
 using Auth.API.Seed;
 using Auth.Models.Data;
@@ -66,6 +68,14 @@ builder.Services.AddScoped<IUserService, UserService>();
 
 // Self-service account operations: profile, sessions, and a personal data export.
 builder.Services.AddScoped<IAccountService, AccountService>();
+
+// Checked on every authenticated request, so it must be cheap: an in-memory cache in
+// front of Users.TokenVersion. See TokenVersionCache for the multi-instance caveat.
+builder.Services.AddScoped<ITokenVersionCache, TokenVersionCache>();
+
+// The suggestion board.
+builder.Services.AddScoped<ISuggestionService, SuggestionService>();
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IManagerService, ManagerService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<ITokenService, TokenService>();

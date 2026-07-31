@@ -21,6 +21,22 @@ namespace Auth.Models.Entities
         public DateTime CreatedAt { get; set; }
         public bool IsActive { get; set; }
         public bool MustChangePassword { get; set; }
+
+        /// <summary>
+        /// Bumped whenever every issued access token for this account must stop working —
+        /// today only by "sign out everywhere".
+        ///
+        /// An access token carries the version it was minted under as a <c>tv</c> claim, and
+        /// authentication rejects any token whose claim no longer matches. This is what makes
+        /// revocation immediate: without it, revoking refresh tokens only stops *renewal*, and
+        /// a stolen access token kept working until it expired on its own.
+        ///
+        /// An integer rather than a timestamp deliberately. A timestamp comparison has to
+        /// decide what to do with a token minted in the same second as the revocation — reject
+        /// it and an immediate re-login breaks, accept it and the revocation has a one-second
+        /// hole. A counter has no such boundary.
+        /// </summary>
+        public int TokenVersion { get; set; }
         public bool AllowMentorJournalAccess { get; set; } = false;
 
         // ── Scholar lifecycle ─────────────────────────────────────────────────
