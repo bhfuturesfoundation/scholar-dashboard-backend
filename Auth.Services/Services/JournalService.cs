@@ -1,4 +1,4 @@
-﻿using Auth.Models.Data;
+using Auth.Models.Data;
 using Auth.Models.DTOs;
 using Auth.Models.Entities;
 using Auth.Models.Request;
@@ -34,6 +34,13 @@ namespace Auth.Services.Services
         {
             if (!request.Answers.Any()) return false;
 
+            // Loaded once so every answer written below can carry the question's wording as
+            // it stands right now. See Answer.QuestionTextSnapshot for why.
+            var questionIds = request.Answers.Select(a => a.QuestionId).Distinct().ToList();
+            var questionsById = await _context.Questions
+                .Where(q => questionIds.Contains(q.QuestionId))
+                .ToDictionaryAsync(q => q.QuestionId);
+
             foreach (var ansDto in request.Answers)
             {
                 var existing = await _context.Answers
@@ -41,9 +48,15 @@ namespace Auth.Services.Services
                                               && a.MonthYear == request.MonthYear
                                               && a.QuestionId == ansDto.QuestionId);
 
+                questionsById.TryGetValue(ansDto.QuestionId, out var question);
+
                 if (existing != null)
                 {
                     existing.Response = ansDto.Response;
+
+                    // Re-stamped on edit: the snapshot records the wording the scholar was
+                    // answering when they wrote this text, and on an edit that is now.
+                    existing.ApplyQuestionSnapshot(question);
                     _context.Answers.Update(existing);
                 }
                 else
@@ -55,6 +68,8 @@ namespace Auth.Services.Services
                         MonthYear = request.MonthYear,
                         Response = ansDto.Response
                     };
+
+                    answer.ApplyQuestionSnapshot(question);
                     await _context.Answers.AddAsync(answer);
                 }
             }
@@ -108,21 +123,46 @@ namespace Auth.Services.Services
                 .Where(a => a.ScholarId == scholarId && a.MonthYear == monthYear)
                 .ToListAsync();
 
+            // Question-first is right here — this is the form the scholar fills in, so it has
+            // to offer every active question whether or not it has been answered.
+            //
+            // Two corrections though: where an answer exists, its snapshotted wording wins,
+            // so re-opening a submitted month shows the question as it was asked rather than
+            // as it reads today. And answers to questions that have since been deactivated
+            // are appended, because otherwise the scholar's own writing disappears from their
+            // journal the moment an admin retires a question.
             var result = questions.Select(q =>
             {
                 var answer = answers.FirstOrDefault(a => a.QuestionId == q.QuestionId);
                 var skill = q.IsSkill ? skills.FirstOrDefault(s => s.QuestionId == q.QuestionId)?.SkillAnswer : null;
+
                 return new JournalQuestionDto
                 {
                     QuestionId = q.QuestionId,
-                    Text = q.Text,
-                    Type = q.Type,
+                    Text = answer?.ResolveQuestionText(q) ?? q.Text,
+                    Type = answer?.ResolveQuestionType(q) ?? q.Type,
                     IsSkill = q.IsSkill,
                     Order = q.Order,
                     Response = answer?.Response,
                     SkillAnswer = skill
                 };
             }).ToList();
+
+            var retiredAnswers = answers
+                .Where(a => questions.All(q => q.QuestionId != a.QuestionId))
+                .Select(a => new JournalQuestionDto
+                {
+                    QuestionId = a.QuestionId,
+                    Text = a.ResolveQuestionText(null),
+                    Type = a.ResolveQuestionType(null),
+                    IsSkill = false,
+                    // Sorted last: these are historical and no longer part of the live form.
+                    Order = int.MaxValue,
+                    Response = a.Response,
+                    SkillAnswer = null
+                });
+
+            result.AddRange(retiredAnswers);
 
             var submission = await _context.JournalSubmissions
                 .FirstOrDefaultAsync(js => js.ScholarId == scholarId && js.MonthYear == monthYear);

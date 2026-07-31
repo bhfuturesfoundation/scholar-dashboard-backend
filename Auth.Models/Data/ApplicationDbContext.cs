@@ -1,5 +1,6 @@
 using Auth.Models.Entities;
 using Auth.Models.Entities.Email;
+using Auth.Models.Entities.Engagement;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Mailing;
 using Auth.Models.Entities.Operations;
@@ -46,6 +47,10 @@ namespace Auth.Models.Data
 
         /// <summary>Audit trail of database backups. See IBackupService.</summary>
         public DbSet<BackupRecord> BackupRecords { get; set; }
+
+        // Engagement
+        public DbSet<Achievement> Achievements { get; set; }
+        public DbSet<Kudos> Kudos { get; set; }
 
         // Scholar lifecycle
         public DbSet<ScholarGeneration> ScholarGenerations { get; set; }
@@ -209,8 +214,47 @@ namespace Auth.Models.Data
                 .HasIndex(s => s.NormalizedEmail)
                 .IsUnique();
 
+            ConfigureEngagement(builder);
             ConfigureScholarLifecycle(builder);
             ConfigureMailing(builder);
+        }
+
+        /// <summary>Badges and peer recognition.</summary>
+        private static void ConfigureEngagement(ModelBuilder builder)
+        {
+            builder.Entity<Achievement>()
+                .HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A badge is earned once. The unique index is what actually guarantees that —
+            // EvaluateAsync runs on every progress load, so without it a race between two
+            // tabs would award duplicates.
+            builder.Entity<Achievement>()
+                .HasIndex(a => new { a.UserId, a.Key })
+                .IsUnique();
+
+            builder.Entity<Kudos>()
+                .HasOne(k => k.FromUser)
+                .WithMany()
+                .HasForeignKey(k => k.FromUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict on the recipient: deleting a user must not silently erase the
+            // recognition other people gave them, which is somebody else's record too.
+            builder.Entity<Kudos>()
+                .HasOne(k => k.ToUser)
+                .WithMany()
+                .HasForeignKey(k => k.ToUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Kudos>()
+                .HasIndex(k => new { k.ToUserId, k.IsHidden });
+
+            // Powers the daily per-recipient cap.
+            builder.Entity<Kudos>()
+                .HasIndex(k => new { k.FromUserId, k.ToUserId, k.CreatedAt });
         }
 
         /// <summary>Generations, cohort status and revertable promotion batches.</summary>

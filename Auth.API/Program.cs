@@ -5,6 +5,7 @@ using Auth.API.Hubs;
 using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
+using Auth.Services.Interfaces.Engagement;
 using Auth.Services.Interfaces.FLS;
 using Auth.Services.Interfaces.Mailing;
 using Auth.Services.Interfaces.Operations;
@@ -17,6 +18,7 @@ using Auth.Services.Services.Scholars;
 using Auth.Services.Services.Storage;
 using Auth.Services.Settings;
 using Auth.Services.Services;
+using Auth.Services.Services.Engagement;
 using Auth.Services.Services.FLS;
 using DotNetEnv;
 using Mapster;
@@ -94,9 +96,18 @@ builder.Services.AddScoped<IGameScoreService, GameScoreService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IOperationsService, OperationsService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
+builder.Services.AddScoped<IAuditQueryService, AuditQueryService>();
+
+// Twice-monthly database backups. Hosted so it runs regardless of whether anyone opens
+// the operations console.
+builder.Services.AddHostedService<ScheduledBackupService>();
 builder.Services.AddScoped<IScholarExportService, ScholarExportService>();
 builder.Services.AddScoped<IScholarLifecycleService, ScholarLifecycleService>();
 builder.Services.AddScoped<IMentorAssignmentService, MentorAssignmentService>();
+
+// Scholar engagement: progress, badges, peer recognition.
+builder.Services.AddScoped<IScholarProgressService, ScholarProgressService>();
+builder.Services.AddScoped<IKudosService, KudosService>();
 
 // Partnerships mailing module.
 builder.Services.AddSingleton<IContactNameExtractor, ContactNameExtractor>();

@@ -3,6 +3,7 @@ using System;
 using Auth.Models.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Auth.Models.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260731072608_SnapshotQuestionTextOnAnswers")]
+    partial class SnapshotQuestionTextOnAnswers
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -143,74 +146,6 @@ namespace Auth.Models.Migrations
                         .IsUnique();
 
                     b.ToTable("EmailSuppressions");
-                });
-
-            modelBuilder.Entity("Auth.Models.Entities.Engagement.Achievement", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("EarnedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsSeen")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId", "Key")
-                        .IsUnique();
-
-                    b.ToTable("Achievements");
-                });
-
-            modelBuilder.Entity("Auth.Models.Entities.Engagement.Kudos", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FromUserId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsHidden")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Message")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ToUserId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ToUserId", "IsHidden");
-
-                    b.HasIndex("FromUserId", "ToUserId", "CreatedAt");
-
-                    b.ToTable("Kudos");
                 });
 
             modelBuilder.Entity("Auth.Models.Entities.FLS.EmailCampaign", b =>
@@ -1786,36 +1721,6 @@ namespace Auth.Models.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Auth.Models.Entities.Engagement.Achievement", b =>
-                {
-                    b.HasOne("Auth.Models.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Auth.Models.Entities.Engagement.Kudos", b =>
-                {
-                    b.HasOne("Auth.Models.Entities.User", "FromUser")
-                        .WithMany()
-                        .HasForeignKey("FromUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Auth.Models.Entities.User", "ToUser")
-                        .WithMany()
-                        .HasForeignKey("ToUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("FromUser");
-
-                    b.Navigation("ToUser");
                 });
 
             modelBuilder.Entity("Auth.Models.Entities.FLS.EmailCampaignRecipient", b =>

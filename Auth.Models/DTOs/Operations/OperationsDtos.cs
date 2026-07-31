@@ -89,4 +89,31 @@ namespace Auth.Models.DTOs.Operations
         public string Notice { get; set; } =
             "Values are never read or displayed — only whether each variable is set.";
     }
+
+    // ── Audit trail ───────────────────────────────────────────────────────────
+
+    public class AuditEventDto
+    {
+        public int Id { get; set; }
+        public string EventType { get; set; } = string.Empty;
+
+        /// <summary>Free-text or JSON detail recorded with the event. Never contains secrets.</summary>
+        public string? Payload { get; set; }
+
+        public DateTime Timestamp { get; set; }
+        public string? IpAddress { get; set; }
+
+        /// <summary>Null for anonymous events such as a failed login for an unknown address.</summary>
+        public string? UserId { get; set; }
+        public string? UserDisplayName { get; set; }
+        public string? UserEmail { get; set; }
+    }
+
+    public class AuditFilterOptionsDto
+    {
+        public List<string> Categories { get; set; } = new();
+
+        /// <summary>Event types actually present, so a filter never returns an empty set.</summary>
+        public List<string> EventTypes { get; set; } = new();
+    }
 }

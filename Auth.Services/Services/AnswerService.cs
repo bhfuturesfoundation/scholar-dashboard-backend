@@ -1,4 +1,4 @@
-﻿using Auth.Models.Data;
+using Auth.Models.Data;
 using Auth.Models.DTOs;
 using Auth.Models.Entities;
 using Auth.Models.Exceptions;
@@ -64,7 +64,16 @@ namespace Auth.Services.Services
                 MonthYear = monthYear,
                 IsSubmitted = false,
                 UpdatedAt = DateTime.UtcNow
-            });
+            }).ToList();
+
+            // Drafts are snapshotted too. A question edited between drafting and submitting
+            // would otherwise change what the scholar appeared to be answering mid-entry.
+            var draftQuestionIds = answers.Select(a => a.QuestionId).Distinct().ToList();
+            var draftQuestions = await _context.Questions
+                .Where(q => draftQuestionIds.Contains(q.QuestionId))
+                .ToDictionaryAsync(q => q.QuestionId);
+
+            answers.ApplyQuestionSnapshots(draftQuestions);
 
             await _context.Answers.AddRangeAsync(answers);
             await _context.SaveChangesAsync();
@@ -115,6 +124,11 @@ namespace Auth.Services.Services
                 _context.Answers.RemoveRange(existingDrafts);
             }
 
+            var submitQuestionIds = answers.Select(a => a.QuestionId).Distinct().ToList();
+            var submitQuestions = await _context.Questions
+                .Where(q => submitQuestionIds.Contains(q.QuestionId))
+                .ToDictionaryAsync(q => q.QuestionId);
+
             // ✅ Persist answers as submitted
             foreach (var answer in answers)
             {
@@ -122,6 +136,9 @@ namespace Auth.Services.Services
                 answer.MonthYear = monthYear;
                 answer.IsSubmitted = true; // Mark as submitted
                 answer.SubmittedAt = DateTime.UtcNow;
+
+                if (submitQuestions.TryGetValue(answer.QuestionId, out var question))
+                    answer.ApplyQuestionSnapshot(question);
             }
 
             await _context.Answers.AddRangeAsync(answers);

@@ -33,22 +33,51 @@ namespace Auth.Services.Services
                 .Where(a => a.ScholarId == scholarId && a.MonthYear == monthYear)
                 .ToListAsync();
 
-            var result = questions.Select(q =>
+            // Built answer-first rather than question-first, for two reasons.
+            //
+            // Starting from the active question list meant a deactivated question made every
+            // past answer to it disappear from history — the scholar wrote something and it
+            // silently stopped existing. And it rendered the question's CURRENT wording over
+            // an old answer, so editing a question retroactively changed what a scholar
+            // appeared to have been asked.
+            //
+            // Answers now carry their own wording (Answer.QuestionTextSnapshot) and are the
+            // spine of the historical view. Active questions with no answer are appended so
+            // the unanswered ones are still visible.
+            var questionsById = questions.ToDictionary(q => q.QuestionId);
+
+            var answered = answers.Select(a =>
             {
-                var answer = answers.FirstOrDefault(a => a.QuestionId == q.QuestionId);
+                questionsById.TryGetValue(a.QuestionId, out var liveQuestion);
 
                 return new JournalAnswerResponse
+                {
+                    QuestionId = a.QuestionId,
+                    Text = a.ResolveQuestionText(liveQuestion),
+                    Type = a.ResolveQuestionType(liveQuestion),
+                    Order = liveQuestion?.Order ?? int.MaxValue,
+                    Response = a.Response,
+                    MonthYear = monthYear
+                };
+            });
+
+            var unanswered = questions
+                .Where(q => answers.All(a => a.QuestionId != q.QuestionId))
+                .Select(q => new JournalAnswerResponse
                 {
                     QuestionId = q.QuestionId,
                     Text = q.Text,
                     Type = q.Type,
                     Order = q.Order,
-                    Response = answer?.Response ?? string.Empty,
+                    Response = string.Empty,
                     MonthYear = monthYear
-                };
-            }).ToList();
+                });
 
-            return result;
+            return answered
+                .Concat(unanswered)
+                .OrderBy(r => r.Order)
+                .ThenBy(r => r.QuestionId)
+                .ToList();
         }
         public async Task<List<JournalSubmissionStatusDto>> GetUserSubmissionsAsync(string userId)
         {
