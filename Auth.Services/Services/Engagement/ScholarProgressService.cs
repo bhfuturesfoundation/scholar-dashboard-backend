@@ -87,7 +87,16 @@ namespace Auth.Services.Services.Engagement
                     Score = AverageRating(g.Select(x => x.Response)),
                     Submitted = submissions.Contains(g.Key)
                 })
-                .Where(p => p.Score.HasValue)
+                // Both conditions matter, and the second was missing.
+                //
+                // The trend is built from Answers, and an Answer row exists as soon as a
+                // draft is auto-saved — long before anything is submitted. So a scholar who
+                // typed a rating one month and never submitted still produced a point on
+                // their chart, and it counted toward "latest score" and the trend arrow.
+                //
+                // JournalSubmissions is the authority on what was actually submitted; the
+                // Submitted flag was already being computed here and then ignored.
+                .Where(p => p.Score.HasValue && p.Submitted)
                 .OrderBy(p => p.MonthYear, StringComparer.Ordinal)
                 .ToList();
 
@@ -146,9 +155,25 @@ namespace Auth.Services.Services.Engagement
 
             if (cohortIds.Count < MinimumCohortForComparison) return;
 
+            // Only scholars who actually submitted that month.
+            //
+            // Same trap as the personal trend: an Answer row exists from the first
+            // auto-saved draft, so without this the median was computed partly from ratings
+            // nobody ever chose to submit — which is both wrong and a small privacy problem,
+            // since it exposes the aggregate of text people decided not to send.
+            var submittedCohortIds = await _context.JournalSubmissions
+                .AsNoTracking()
+                .Where(js => js.MonthYear == latestMonth
+                          && js.Submitted
+                          && cohortIds.Contains(js.ScholarId))
+                .Select(js => js.ScholarId)
+                .ToListAsync(cancellationToken);
+
+            if (submittedCohortIds.Count < MinimumCohortForComparison) return;
+
             var cohortRatings = await _context.Answers
                 .AsNoTracking()
-                .Where(a => cohortIds.Contains(a.ScholarId)
+                .Where(a => submittedCohortIds.Contains(a.ScholarId)
                             && a.MonthYear == latestMonth
                             && skillQuestionIds.Contains(a.QuestionId))
                 .Select(a => new { a.ScholarId, a.Response })
