@@ -33,6 +33,13 @@ namespace Auth.Services.Services.News
         private const long MaxImageBytes = 5 * 1024 * 1024;
 
         /// <summary>
+        /// The same backstop for the HTML page. Generous, because it is a backstop and not a
+        /// budget: the real page is ~170 KB, and this only exists so a server that streams
+        /// forever cannot exhaust the container.
+        /// </summary>
+        private const long MaxPageBytes = 10 * 1024 * 1024;
+
+        /// <summary>
         /// Widest the stored thumbnail may be. The widget renders these in a card roughly
         /// 300px across, so 640 is comfortably sharp on a 2× display and still an order of
         /// magnitude smaller than the 1280px originals the source CDN serves.
@@ -365,12 +372,6 @@ namespace Auth.Services.Services.News
         }
 
         /// <summary>
-        /// Generous, because it is a backstop and not a budget. The real page is ~170 KB; this
-        /// only exists so a server that streams forever cannot exhaust the container.
-        /// </summary>
-        private const long MaxPageBytes = 10 * 1024 * 1024;
-
-        /// <summary>
         /// Downloads one thumbnail and re-encodes it. Returns null on any failure — a missing
         /// picture is never worth losing the news over.
         /// </summary>
@@ -421,10 +422,8 @@ namespace Auth.Services.Services.News
             // A declared length over the cap is refused before a single byte is transferred.
             // The header cannot be trusted to be present or honest, which is why the counted
             // read below still exists — but when it is there, it saves the download.
-            if (content.Headers.ContentLength is > 0 and var declared && declared > max)
-            {
-                return null;
-            }
+            var declared = content.Headers.ContentLength;
+            if (declared.HasValue && declared.Value > max) return null;
 
             await using var stream = await content.ReadAsStreamAsync(cancellationToken);
             using var buffer = new MemoryStream();
