@@ -2,6 +2,9 @@ using Auth.API.Extensions;
 using Auth.API.HealthChecks;
 using Auth.API.Middleware;
 using Auth.API.Hubs;
+using Auth.API.Services;
+using Auth.Services.Interfaces.Notifications;
+using Auth.Services.Services.Notifications;
 using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
@@ -117,6 +120,27 @@ builder.Services.AddScoped<IFirmImportExportService, FirmImportExportService>();
 builder.Services.AddScoped<IMailingTaxonomyService, MailingTaxonomyService>();
 builder.Services.AddScoped<IMailingCampaignService, MailingCampaignService>();
 builder.Services.AddScoped<IMailingScheduleService, MailingScheduleService>();
+
+// ── Notifications ────────────────────────────────────────────────────────────
+//
+// The bell menu, delivery preferences, push, and the journal submission window.
+// The window lives here rather than in the frontend because the reminder service needs
+// the same rule, and a rule that exists in two places drifts.
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IJournalWindowService, JournalWindowService>();
+builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
+
+// Singleton: it holds nothing but IHubContext, which is itself a singleton. Scoping it
+// would allocate one per request for no reason.
+builder.Services.AddSingleton<INotificationRealtime, SignalRNotificationRealtime>();
+
+// Typed client so the push service gets connection pooling and the standard handler
+// lifetime rather than a socket per send.
+builder.Services.AddHttpClient<IPushSender, WebPushSender>();
+
+// Reminders, the weekly digest, and the outbox that actually delivers email and push.
+// Hosted, because the whole point is reaching people who have NOT opened the app.
+builder.Services.AddHostedService<NotificationSchedulerService>();
 
 // Executes due schedules. Hosted, so it runs whether or not anyone opens the UI.
 builder.Services.AddHostedService<MailingSchedulerService>();
@@ -248,6 +272,11 @@ app.MapGet("/version", () => Results.Ok(new
 }));
 app.MapHub<MinigamesHub>("/hubs/minigames").RequireRateLimiting("signalr-hub");
 app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub");
+
+// Both paths for the same reason as the minigames hub: the frontend's API base URL
+// already carries /api on some deployments and not on others.
+app.MapHub<NotificationsHub>("/hubs/notifications").RequireRateLimiting("signalr-hub");
+app.MapHub<NotificationsHub>("/api/hubs/notifications").RequireRateLimiting("signalr-hub");
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())

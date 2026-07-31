@@ -3,6 +3,7 @@ using Auth.Models.Entities.Email;
 using Auth.Models.Entities.Engagement;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Mailing;
+using Auth.Models.Entities.Notifications;
 using Auth.Models.Entities.Operations;
 using Auth.Models.Entities.Scholars;
 using Microsoft.AspNetCore.Identity;
@@ -51,6 +52,12 @@ namespace Auth.Models.Data
         // Engagement
         public DbSet<Achievement> Achievements { get; set; }
         public DbSet<Kudos> Kudos { get; set; }
+
+        // Notifications
+        public DbSet<Notification> Notifications { get; set; }
+        public DbSet<NotificationPreference> NotificationPreferences { get; set; }
+        public DbSet<Auth.Models.Entities.Notifications.PushSubscription> PushSubscriptions { get; set; }
+        public DbSet<Announcement> Announcements { get; set; }
 
         // Scholar lifecycle
         public DbSet<ScholarGeneration> ScholarGenerations { get; set; }
@@ -217,6 +224,7 @@ namespace Auth.Models.Data
             ConfigureEngagement(builder);
             ConfigureScholarLifecycle(builder);
             ConfigureMailing(builder);
+            ConfigureNotifications(builder);
         }
 
         /// <summary>Badges and peer recognition.</summary>
@@ -255,6 +263,97 @@ namespace Auth.Models.Data
             // Powers the daily per-recipient cap.
             builder.Entity<Kudos>()
                 .HasIndex(k => new { k.FromUserId, k.ToUserId, k.CreatedAt });
+        }
+
+
+        /// <summary>Server-side notifications, delivery preferences and push subscriptions.</summary>
+        private static void ConfigureNotifications(ModelBuilder builder)
+        {
+            // The bell menu's only query: this user's undismissed notifications, newest
+            // first. Covering it matters because the client polls this endpoint.
+            builder.Entity<Notification>()
+                .HasIndex(n => new { n.UserId, n.DismissedAt, n.CreatedAt });
+
+            // Idempotency. Filtered so the many rows with no dedupe key do not all collide
+            // on a single NULL — Postgres would allow that, but the filter also keeps the
+            // index small, and it is only ever probed with a value.
+            builder.Entity<Notification>()
+                .HasIndex(n => new { n.UserId, n.DedupeKey })
+                .IsUnique()
+                .HasFilter("\"DedupeKey\" IS NOT NULL");
+
+            builder.Entity<Notification>()
+                .HasIndex(n => new { n.UserId, n.CollapseKey, n.CreatedAt });
+
+            // The outbox drain: everything still waiting to go out by email or push.
+            builder.Entity<Notification>()
+                .HasIndex(n => new { n.WantsEmail, n.EmailSentAt, n.DeferredUntil });
+
+            builder.Entity<Notification>()
+                .HasIndex(n => new { n.WantsPush, n.PushSentAt, n.DeferredUntil });
+
+            builder.Entity<Notification>()
+                .HasOne(n => n.User)
+                .WithMany()
+                .HasForeignKey(n => n.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<Notification>()
+                .HasOne(n => n.Announcement)
+                .WithMany(a => a.Notifications)
+                .HasForeignKey(n => n.AnnouncementId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<Notification>()
+                .Property(n => n.MessageKey)
+                .HasMaxLength(128);
+
+            builder.Entity<Notification>()
+                .Property(n => n.DedupeKey)
+                .HasMaxLength(200);
+
+            builder.Entity<Notification>()
+                .Property(n => n.CollapseKey)
+                .HasMaxLength(200);
+
+            // One preference row per person.
+            builder.Entity<NotificationPreference>()
+                .HasIndex(p => p.UserId)
+                .IsUnique();
+
+            builder.Entity<NotificationPreference>()
+                .HasOne(p => p.User)
+                .WithMany()
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Unique on the endpoint alone, not per user: the endpoint identifies a
+            // physical browser. If that browser is later signed in as somebody else, the
+            // row is reassigned, otherwise the previous account's notifications would keep
+            // arriving on a device that is no longer theirs.
+            builder.Entity<Auth.Models.Entities.Notifications.PushSubscription>()
+                .HasIndex(s => s.Endpoint)
+                .IsUnique();
+
+            builder.Entity<Auth.Models.Entities.Notifications.PushSubscription>()
+                .HasIndex(s => s.UserId);
+
+            builder.Entity<Auth.Models.Entities.Notifications.PushSubscription>()
+                .HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<Auth.Models.Entities.Notifications.PushSubscription>()
+                .Property(s => s.Endpoint)
+                .HasMaxLength(512);
+
+            builder.Entity<Announcement>()
+                .HasIndex(a => a.CreatedAt);
+
+            builder.Entity<Announcement>()
+                .Property(a => a.Title)
+                .HasMaxLength(200);
         }
 
         /// <summary>Generations, cohort status and revertable promotion batches.</summary>

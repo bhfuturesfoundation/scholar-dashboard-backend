@@ -3,6 +3,8 @@ using Auth.Models.DTOs.Engagement;
 using Auth.Models.Entities.Engagement;
 using Auth.Models.Exceptions;
 using Auth.Services.Interfaces.Engagement;
+using Auth.Services.Interfaces.Notifications;
+using Auth.Models.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -30,15 +32,18 @@ namespace Auth.Services.Services.Engagement
 
         private readonly ApplicationDbContext _context;
         private readonly IScholarProgressService _progress;
+        private readonly INotificationService _notifications;
         private readonly ILogger<KudosService> _logger;
 
         public KudosService(
             ApplicationDbContext context,
             IScholarProgressService progress,
+            INotificationService notifications,
             ILogger<KudosService> logger)
         {
             _context = context;
             _progress = progress;
+            _notifications = notifications;
             _logger = logger;
         }
 
@@ -96,6 +101,29 @@ namespace Auth.Services.Services.Engagement
             // for being recognised.
             await _progress.EvaluateAsync(fromUserId, cancellationToken);
             await _progress.EvaluateAsync(toUserId, cancellationToken);
+
+            // Tell the recipient. Collapsed under a shared key so a well-liked scholar who
+            // gets recognised five times in an afternoon sees one line rather than five —
+            // recognition that arrives as a burst of identical rows reads as noise.
+            var giver = await _context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == fromUserId, cancellationToken);
+
+            await _notifications.CreateAsync(new CreateNotificationRequest
+            {
+                UserId = toUserId,
+                MessageKey = NotificationKeys.KudosReceived,
+                Params = new Dictionary<string, string>
+                {
+                    ["fromName"] = $"{giver?.FirstName} {giver?.LastName}".Trim() is { Length: > 0 } name
+                        ? name
+                        : "A scholar",
+                    ["categoryLabel"] = KudosCategories.All.GetValueOrDefault(category, category)
+                },
+                CollapseKey = "kudos",
+                WantsEmail = true,
+                WantsPush = true
+            }, cancellationToken);
 
             _logger.LogInformation("Kudos given from {From} to {To} ({Category}).", fromUserId, toUserId, category);
 

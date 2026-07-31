@@ -2,7 +2,9 @@ using Auth.Models.Data;
 using Auth.Models.DTOs;
 using Auth.Models.Entities;
 using Auth.Models.Request;
+using Auth.Models.Constants;
 using Auth.Services.Interfaces;
+using Auth.Services.Interfaces.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -11,11 +13,19 @@ namespace Auth.Services.Services
     public class JournalService : IJournalService
     {
         private readonly ApplicationDbContext _context;
+        private readonly INotificationService _notifications;
+        private readonly IJournalWindowService _windows;
         private readonly ILogger<JournalService> _logger;
 
-        public JournalService(ApplicationDbContext context, ILogger<JournalService> logger)
+        public JournalService(
+            ApplicationDbContext context,
+            INotificationService notifications,
+            IJournalWindowService windows,
+            ILogger<JournalService> logger)
         {
             _context = context;
+            _notifications = notifications;
+            _windows = windows;
             _logger = logger;
         }
 
@@ -103,7 +113,73 @@ namespace Auth.Services.Services
             _logger.LogInformation("Submitted {Count} answers and marked month {Month} as submitted for scholar {Scholar}",
                 request.Answers.Count, request.MonthYear, request.ScholarId);
 
+            await NotifySubmissionAsync(request.ScholarId, request.MonthYear);
+
             return saved > 0;
+        }
+
+
+        /// <summary>
+        /// Confirms receipt to the scholar and tells their mentor.
+        ///
+        /// Deduped per scholar per month, because a scholar who submits, edits and submits
+        /// again should not generate a second confirmation — and definitely should not send
+        /// their mentor a second "they submitted" email.
+        ///
+        /// Deliberately never throws: a notification failure must not make a successful
+        /// journal submission look like it failed. The scholar's answers are already
+        /// committed by the time this runs.
+        /// </summary>
+        private async Task NotifySubmissionAsync(string scholarId, string monthYear)
+        {
+            try
+            {
+                var monthLabel = Notifications.JournalWindowService.TryParseMonth(monthYear, out var month)
+                    ? month.ToString("MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture)
+                    : monthYear;
+
+                await _notifications.CreateAsync(new CreateNotificationRequest
+                {
+                    UserId = scholarId,
+                    MessageKey = NotificationKeys.JournalReceived,
+                    Params = new Dictionary<string, string> { ["monthLabel"] = monthLabel },
+                    DedupeKey = $"journal-received:{monthYear}",
+
+                    // No email. The scholar just pressed submit and saw a success screen —
+                    // an email saying the thing they watched happen has happened is exactly
+                    // the sort of message that trains people to ignore the rest.
+                    WantsEmail = false,
+                    WantsPush = false
+                });
+
+                var scholar = await _context.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == scholarId)
+                    .Select(u => new { u.MentorId, u.FirstName, u.LastName })
+                    .FirstOrDefaultAsync();
+
+                if (scholar?.MentorId is not { Length: > 0 } mentorId) return;
+
+                await _notifications.CreateAsync(new CreateNotificationRequest
+                {
+                    UserId = mentorId,
+                    MessageKey = NotificationKeys.MenteeSubmitted,
+                    Params = new Dictionary<string, string>
+                    {
+                        ["menteeName"] = $"{scholar.FirstName} {scholar.LastName}".Trim(),
+                        ["monthLabel"] = monthLabel
+                    },
+                    DedupeKey = $"mentee-submitted:{scholarId}:{monthYear}",
+                    WantsEmail = true,
+                    WantsPush = true
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Could not create submission notifications for {Scholar} / {Month}. " +
+                    "The journal itself was saved.", scholarId, monthYear);
+            }
         }
 
         /** --- Get all questions for a month + current answers + submitted state --- */

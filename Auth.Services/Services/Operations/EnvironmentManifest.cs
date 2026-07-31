@@ -42,6 +42,7 @@ namespace Auth.Services.Services.Operations
         public const string Integrations = "Integrations";
         public const string Infrastructure = "Infrastructure";
         public const string Seeding = "Seeding";
+        public const string Notifications = "Notifications";
 
         public static readonly IReadOnlyList<EnvVarDefinition> All = new List<EnvVarDefinition>
         {
@@ -131,6 +132,36 @@ namespace Auth.Services.Services.Operations
             // ── Seeding ───────────────────────────────────────────────────────
             new("SEED_PARTNER_MEMBER_PASSWORD", Seeding, EnvVarImportance.Optional,
                 "Initial password for the seeded partnerships account. Ignored after creation."),
+
+            // ── Notifications ─────────────────────────────────────────────────
+            new("VAPID_PUBLIC_KEY", Notifications, EnvVarImportance.Optional,
+                "Public half of the VAPID key pair. Handed to the browser when it subscribes to push.",
+                "Web push is unavailable. The settings screen hides the push column rather than offering switches that cannot work."),
+            new("VAPID_PRIVATE_KEY", Notifications, EnvVarImportance.Optional,
+                "Private half of the VAPID key pair. Signs every push request.",
+                "Web push is unavailable. Rotating this pair invalidates every existing subscription, because browsers bind to the public key they were given."),
+            new("VAPID_SUBJECT", Notifications, EnvVarImportance.Optional,
+                "Contact URL the push service uses if this application starts misbehaving. A mailto: or https: URL.",
+                "Defaults to mailto:info@bhfuturesfoundation.org."),
+            new("NOTIFICATIONS_SCHEDULER_ENABLED", Notifications, EnvVarImportance.Optional,
+                "Set to false to stop reminders, digests and the outbound email/push drain.",
+                "Enabled by default. Turning it off means notifications are created but never leave the app."),
+            new("JOURNAL_REMINDER_DAYS", Notifications, EnvVarImportance.Optional,
+                "Days before the deadline a journal reminder is sent, comma-separated.",
+                "Defaults to 5,2,0."),
+            new("JOURNAL_WINDOW_CLOSE_DAY", Notifications, EnvVarImportance.Optional,
+                "Last day of the month journals may be submitted for the previous month. 1-28.",
+                "Defaults to 9, which is the rule the frontend used to hardcode."),
+            new("JOURNAL_TIMEZONE", Notifications, EnvVarImportance.Optional,
+                "IANA zone the submission deadline is anchored to, e.g. Europe/Sarajevo.",
+                "Defaults to Europe/Sarajevo. An unknown value falls back to UTC and shifts the deadline by up to two hours."),
+            new("JOURNAL_ENFORCE_WINDOW", Notifications, EnvVarImportance.Optional,
+                "Set to true to make the API reject journal submissions outside the window.",
+                "Off by default. While off, the window is advisory and the submit endpoint accepts any month at any time."),
+            new("DIGEST_DAY", Notifications, EnvVarImportance.Optional,
+                "Day of the week the weekly summary email goes out.", "Defaults to Monday."),
+            new("DIGEST_HOUR_UTC", Notifications, EnvVarImportance.Optional,
+                "Hour (UTC) the weekly summary goes out.", "Defaults to 7."),
         };
 
         public static IEnumerable<string> Categories => All

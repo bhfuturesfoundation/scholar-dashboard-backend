@@ -4,6 +4,8 @@ using Auth.Models.Entities.Engagement;
 using Auth.Models.Enums.Scholars;
 using Auth.Models.Exceptions;
 using Auth.Services.Interfaces.Engagement;
+using Auth.Services.Interfaces.Notifications;
+using Auth.Models.Constants;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
@@ -28,11 +30,16 @@ namespace Auth.Services.Services.Engagement
         private const int MinimumCohortForComparison = 5;
 
         private readonly ApplicationDbContext _context;
+        private readonly INotificationService _notifications;
         private readonly ILogger<ScholarProgressService> _logger;
 
-        public ScholarProgressService(ApplicationDbContext context, ILogger<ScholarProgressService> logger)
+        public ScholarProgressService(
+            ApplicationDbContext context,
+            INotificationService notifications,
+            ILogger<ScholarProgressService> logger)
         {
             _context = context;
+            _notifications = notifications;
             _logger = logger;
         }
 
@@ -259,6 +266,26 @@ namespace Auth.Services.Services.Engagement
 
             _logger.LogInformation("Awarded {Count} achievement(s) to {Scholar}: {Keys}",
                 toAward.Count, scholarId, string.Join(", ", toAward));
+
+            // One notification per badge, collapsed under a shared key. EvaluateAsync runs on
+            // every progress-page load, so the dedupe key per badge is what stops a scholar
+            // being told about the same badge on every visit.
+            foreach (var key in toAward)
+            {
+                await _notifications.CreateAsync(new CreateNotificationRequest
+                {
+                    UserId = scholarId,
+                    MessageKey = NotificationKeys.AchievementEarned,
+                    Params = new Dictionary<string, string>
+                    {
+                        ["badgeName"] = AchievementCatalog.Find(key)?.Name ?? key
+                    },
+                    DedupeKey = $"achievement:{key}",
+                    CollapseKey = "achievement",
+                    WantsEmail = true,
+                    WantsPush = true
+                }, cancellationToken);
+            }
 
             return toAward.Count;
         }
