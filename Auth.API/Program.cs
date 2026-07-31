@@ -288,13 +288,13 @@ app.MapGet("/version", () => Results.Ok(new
     hasOperationsApi = true,
     hasMailingApi = true
 }));
-app.MapHub<MinigamesHub>("/hubs/minigames").RequireRateLimiting("signalr-hub");
-app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub");
+app.MapHub<MinigamesHub>("/hubs/minigames").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
+app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 
 // Both paths for the same reason as the minigames hub: the frontend's API base URL
 // already carries /api on some deployments and not on others.
-app.MapHub<NotificationsHub>("/hubs/notifications").RequireRateLimiting("signalr-hub");
-app.MapHub<NotificationsHub>("/api/hubs/notifications").RequireRateLimiting("signalr-hub");
+app.MapHub<NotificationsHub>("/hubs/notifications").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
+app.MapHub<NotificationsHub>("/api/hubs/notifications").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())

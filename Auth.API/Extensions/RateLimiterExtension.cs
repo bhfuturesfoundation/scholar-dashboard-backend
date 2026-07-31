@@ -85,7 +85,18 @@ namespace Auth.API.Extensions
                         partitionKey: ipAddress,
                         factory: _ => new FixedWindowRateLimiterOptions
                         {
-                            PermitLimit = 1000,
+                            // Raised from 1000/hour.
+                            //
+                            // The old ceiling predates SignalR. Two hubs that reconnect on
+                            // every deploy, a 60-second notification poll and ordinary
+                            // navigation add up faster than it looks, and the partition key
+                            // is the IP — so a school or an office behind one NAT shares a
+                            // single bucket and the whole building gets 429s.
+                            //
+                            // A rejection also *reads* as a CORS failure in the browser
+                            // console rather than as a rate limit, which makes it an
+                            // expensive thing to debug.
+                            PermitLimit = 5000,
                             Window = TimeSpan.FromHours(1),
                             AutoReplenishment = true
                         });
