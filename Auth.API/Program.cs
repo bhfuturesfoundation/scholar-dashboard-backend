@@ -63,6 +63,9 @@ builder.Services.AddCors(options =>
 
 // Add scoped/singleton services...
 builder.Services.AddScoped<IUserService, UserService>();
+
+// Self-service account operations: profile, sessions, and a personal data export.
+builder.Services.AddScoped<IAccountService, AccountService>();
 builder.Services.AddScoped<IManagerService, ManagerService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<ITokenService, TokenService>();

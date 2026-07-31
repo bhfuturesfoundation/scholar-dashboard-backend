@@ -1,6 +1,7 @@
 using Auth.API.Helpers;
 using Auth.Models.Exceptions;
 using Auth.Services.Interfaces;
+using Auth.Models.DTOs.Account;
 using Auth.Models.Request;
 using Auth.Models.Response;
 using Auth.Services.Interfaces;
@@ -21,6 +22,7 @@ public class AuthController : ControllerBase
     private readonly ITwoFactorService _twoFactorService;
     private readonly IEmailService _emailService;
     private readonly IAuditService _auditService;
+    private readonly IAccountService _accountService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -30,6 +32,7 @@ public class AuthController : ControllerBase
         ITwoFactorService twoFactorService,
         IEmailService emailService,
         IAuditService auditService,
+        IAccountService accountService,
         ILogger<AuthController> logger)
     {
         _authService = authService;
@@ -38,12 +41,69 @@ public class AuthController : ControllerBase
         _twoFactorService = twoFactorService;
         _emailService = emailService;
         _auditService = auditService;
+        _accountService = accountService;
         _logger = logger;
     }
 
     private string GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
     private string GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+
+
+    // ── Self-service account ──────────────────────────────────────────────────
+    //
+    // Everything here is scoped to the caller's own id from the token, never a route or
+    // body parameter. Before these existed the only thing anyone could do to their own
+    // account was change their password: a misspelled surname needed a staff email, and
+    // signing in on a shared machine could not be undone.
+
+    /// <summary>Everything the settings screen shows, in one round trip.</summary>
+    [Authorize]
+    [HttpGet("me")]
+    public async Task<ActionResult<ApiResponse<AccountOverviewDto>>> GetAccount(CancellationToken ct) =>
+        Ok(ApiResponse<AccountOverviewDto>.SuccessResponse(
+            await _accountService.GetOverviewAsync(GetUserId(), ct), "Account retrieved"));
+
+    /// <summary>
+    /// Updates the caller's own name. Email, title, roles and scholar status are
+    /// deliberately not editable here — see UpdateProfileRequest.
+    /// </summary>
+    [Authorize]
+    [HttpPut("me")]
+    public async Task<ActionResult<ApiResponse<AccountOverviewDto>>> UpdateAccount(
+        [FromBody] UpdateProfileRequest request, CancellationToken ct) =>
+        Ok(ApiResponse<AccountOverviewDto>.SuccessResponse(
+            await _accountService.UpdateProfileAsync(GetUserId(), request, ct), "Profile updated"));
+
+    /// <summary>
+    /// Revokes every refresh token for this account, including the caller's own.
+    ///
+    /// The current access token stays valid until it expires — revoking issued JWTs would
+    /// need a denylist checked on every request, which is a real cost for a rare action.
+    /// Every other device is locked out within the access-token lifetime and cannot renew.
+    /// </summary>
+    [Authorize]
+    [HttpPost("me/sign-out-everywhere")]
+    public async Task<ActionResult<ApiResponse<int>>> SignOutEverywhere(CancellationToken ct) =>
+        Ok(ApiResponse<int>.SuccessResponse(
+            await _accountService.SignOutEverywhereAsync(GetUserId(), GetIpAddress(), ct),
+            "Signed out of all devices"));
+
+    /// <summary>
+    /// A copy of everything this account holds, as JSON.
+    ///
+    /// Journal entries are personal reflections written in confidence, which is exactly
+    /// why this takes no user id: it can only ever return the caller's own.
+    /// </summary>
+    [Authorize]
+    [HttpGet("me/export")]
+    public async Task<IActionResult> ExportOwnData(CancellationToken ct)
+    {
+        var bytes = await _accountService.ExportOwnDataAsync(GetUserId(), ct);
+        var fileName = $"my-data-{DateTime.UtcNow:yyyy-MM-dd}.json";
+
+        return File(bytes, "application/json", fileName);
+    }
 
     [EnableRateLimiting("auth-email")]
     [HttpPost("register")]
