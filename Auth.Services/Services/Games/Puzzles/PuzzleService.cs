@@ -96,6 +96,19 @@ namespace Auth.Services.Services.Games.Puzzles
                     break;
                 }
 
+                case PuzzleGames.Sokoban:
+                {
+                    // The whole level goes out. There is nothing to hide: Sokoban has no hidden
+                    // information at all — the puzzle is the grid, and seeing it is the game.
+                    var level = SokobanEngine.Levels[ClampSokoban(difficulty)];
+
+                    deal.Rows = level.Rows;
+                    deal.Par = level.ParMoves;
+                    deal.LevelName = level.Name;
+                    deal.LevelCount = SokobanEngine.Levels.Length;
+                    break;
+                }
+
                 case PuzzleGames.Minesweeper:
                 {
                     var spec = MinesweeperEngine.SpecFor(ClampMinesweeper(difficulty));
@@ -271,6 +284,7 @@ namespace Auth.Services.Services.Games.Puzzles
                 PuzzleGames.Game2048 => Score2048(ticket, submission, seconds),
                 PuzzleGames.Minesweeper => ScoreMinesweeper(ticket, submission, seconds),
                 PuzzleGames.Tetris => ScoreTetris(ticket, submission, seconds),
+                PuzzleGames.Sokoban => ScoreSokoban(ticket, submission, seconds),
                 _ => Rejected("Unknown puzzle."),
             };
 
@@ -406,6 +420,32 @@ namespace Auth.Services.Services.Games.Puzzles
                 Tetrises = replay.Tetrises,
             };
         }
+
+        private static PuzzleOutcome ScoreSokoban(PuzzleTicket ticket, PuzzleSubmission submission, int seconds)
+        {
+            var levelIndex = ClampSokoban(ticket.Difficulty);
+            var moves = submission.Moves ?? Array.Empty<int>();
+
+            var replay = SokobanEngine.Replay(levelIndex, moves);
+            if (!replay.Valid) return Rejected(replay.Rejection ?? "That solution could not be replayed.");
+            if (!replay.Solved) return Rejected("That level is not solved.");
+
+            // Moves, not the clock. There is no minimum-time floor either: a player who has solved
+            // a level before genuinely can repeat it in seconds, and penalising that would punish
+            // the one thing Sokoban rewards — knowing the answer and executing it cleanly.
+            var curve = PuzzleScoring.ForSokoban(SokobanEngine.Levels[levelIndex].ParMoves);
+
+            return new PuzzleOutcome
+            {
+                Accepted = true,
+                Score = PuzzleScoring.FromTime(curve, replay.Moves),
+                Seconds = seconds,
+                Moves = replay.Moves,
+            };
+        }
+
+        private static int ClampSokoban(int level) =>
+            Math.Clamp(level, 0, SokobanEngine.Levels.Length - 1);
 
         private static PuzzleOutcome Rejected(string reason) =>
             new() { Accepted = false, Reason = reason };

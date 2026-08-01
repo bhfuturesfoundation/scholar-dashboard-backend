@@ -54,6 +54,12 @@ namespace Auth.Services.Services.Games.Puzzles
             _ => new Curve(1000, 40, 4),
         };
 
+        /// <summary>
+        /// Sokoban is scored on moves, not the clock — see SokobanEngine. The curve is the same
+        /// shape, so a solution at par pays base and a shorter one pays up to double.
+        /// </summary>
+        public static Curve ForSokoban(int parMoves) => new(600, Math.Max(2, parMoves), 0);
+
         public static int FromTime(Curve curve, int seconds)
         {
             var elapsed = Math.Max(0, seconds);

@@ -1102,4 +1102,205 @@ public class PuzzleEngineTests
 
         Assert.Equal(new[] { 1, 0, 5, 2, 4, 6, 3, 4, 6, 3, 0, 5, 2, 1, 4 }, dealt);
     }
+
+    // ── Sokoban ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Breadth-first search over (player position, box positions).
+    ///
+    /// BFS rather than anything cleverer because it returns the *shortest* solution, which is
+    /// what the par values are checked against — a heuristic search would find some solution and
+    /// tell us nothing about whether par is achievable.
+    /// </summary>
+    private static int? ShortestSolution(SokobanEngine.Level level, int nodeBudget = 400_000)
+    {
+        var start = SokobanEngine.Parse(level);
+        if (SokobanEngine.IsSolved(start)) return 0;
+
+        var seen = new HashSet<string> { SokobanEngine.Signature(start) };
+        var queue = new Queue<(SokobanEngine.State State, int Depth)>();
+        queue.Enqueue((start, 0));
+
+        var expanded = 0;
+
+        while (queue.Count > 0)
+        {
+            var (state, depth) = queue.Dequeue();
+
+            if (++expanded > nodeBudget) return null;
+
+            for (var direction = 0; direction < 4; direction++)
+            {
+                var next = SokobanEngine.Clone(state);
+                if (!SokobanEngine.TryMove(next, direction)) continue;
+
+                var key = SokobanEngine.Signature(next);
+                if (!seen.Add(key)) continue;
+
+                if (SokobanEngine.IsSolved(next)) return depth + 1;
+
+                queue.Enqueue((next, depth + 1));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The property that matters most in this whole file.
+    ///
+    /// An unsolvable Sokoban level does not look broken — it looks hard. A player can lose an
+    /// hour to one and conclude they are bad at the game. Proving solvability by search is the
+    /// only way to know, and it is why these levels are shipped rather than the copyrighted
+    /// classic sets that would have come pre-tested.
+    /// </summary>
+    [Fact]
+    public void SokobanLevels_AreAllSolvable()
+    {
+        for (var i = 0; i < SokobanEngine.Levels.Length; i++)
+        {
+            var level = SokobanEngine.Levels[i];
+            var shortest = ShortestSolution(level);
+
+            Assert.True(shortest.HasValue, $"Level {i} ('{level.Name}') has no solution.");
+            Assert.True(shortest!.Value > 0, $"Level {i} ('{level.Name}') starts already solved.");
+        }
+    }
+
+    /// <summary>
+    /// Par has to be reachable, or the scoring curve is a lie: par pays base points, and a par
+    /// nobody can hit means the advertised score is unobtainable. Par is allowed to be generous —
+    /// it is a target, not a record — but never tighter than the optimal solution.
+    /// </summary>
+    [Fact]
+    public void SokobanLevels_HaveAchievablePar()
+    {
+        for (var i = 0; i < SokobanEngine.Levels.Length; i++)
+        {
+            var level = SokobanEngine.Levels[i];
+            var shortest = ShortestSolution(level);
+
+            Assert.True(shortest.HasValue, $"Level {i} ('{level.Name}') has no solution.");
+            Assert.True(
+                level.ParMoves >= shortest!.Value,
+                $"Level {i} ('{level.Name}') sets par at {level.ParMoves} but the optimum is {shortest.Value}.");
+        }
+    }
+
+    /// <summary>Each level needs exactly one player and at least as many goals as boxes.</summary>
+    [Fact]
+    public void SokobanLevels_AreWellFormed()
+    {
+        foreach (var level in SokobanEngine.Levels)
+        {
+            var players = 0;
+            var boxes = 0;
+            var goals = 0;
+
+            foreach (var row in level.Rows)
+            {
+                foreach (var cell in row)
+                {
+                    if (cell is '@' or '+') players++;
+                    if (cell is '$' or '*') boxes++;
+                    if (cell is '.' or '*' or '+') goals++;
+                }
+            }
+
+            Assert.True(players == 1, $"'{level.Name}' has {players} players.");
+            Assert.True(boxes > 0, $"'{level.Name}' has no boxes.");
+            Assert.True(goals >= boxes, $"'{level.Name}' has {boxes} boxes but only {goals} goals.");
+        }
+    }
+
+    /// <summary>
+    /// A box against a wall it cannot be pushed along is dead, and the engine must simply refuse
+    /// the move rather than letting it slide through. Two boxes in a line are the same rule: they
+    /// cannot be pushed together, which is most of what makes the game hard.
+    /// </summary>
+    [Fact]
+    public void Sokoban_RefusesImpossiblePushes()
+    {
+        var level = new SokobanEngine.Level("Test", new[]
+        {
+            "#####",
+            "#@$$#",
+            "#####",
+        }, 1);
+
+        var state = SokobanEngine.Parse(level);
+
+        // Right pushes a box into a box: not allowed.
+        Assert.False(SokobanEngine.TryMove(state, 1));
+
+        // Left walks into a wall.
+        Assert.False(SokobanEngine.TryMove(state, 3));
+    }
+
+    [Fact]
+    public void Sokoban_PushesABoxOntoAGoal()
+    {
+        var level = new SokobanEngine.Level("Test", new[]
+        {
+            "#####",
+            "#@$.#",
+            "#####",
+        }, 1);
+
+        var state = SokobanEngine.Parse(level);
+
+        Assert.False(SokobanEngine.IsSolved(state));
+        Assert.True(SokobanEngine.TryMove(state, 1));
+        Assert.True(SokobanEngine.IsSolved(state));
+    }
+
+    [Fact]
+    public void SokobanReplay_AcceptsASolutionAndRejectsAnUnfinishedOne()
+    {
+        // Level 0 is the tutorial: one push right puts the only box on the only goal.
+        var solved = SokobanEngine.Replay(0, new[] { 1 });
+        Assert.True(solved.Valid, solved.Rejection);
+        Assert.True(solved.Solved);
+        Assert.Equal(1, solved.Moves);
+
+        // Walking up is a legal move that solves nothing.
+        var partial = SokobanEngine.Replay(0, new[] { 0 });
+        Assert.True(partial.Valid, partial.Rejection);
+        Assert.False(partial.Solved);
+
+        // And pushing past the goal un-solves it, which the engine must report honestly rather
+        // than latching "solved" the first time every box happens to be home.
+        var overshot = SokobanEngine.Replay(0, new[] { 1, 1 });
+        Assert.True(overshot.Valid, overshot.Rejection);
+        Assert.False(overshot.Solved);
+    }
+
+    /// <summary>An honest client never sends a move it could not make.</summary>
+    [Fact]
+    public void SokobanReplay_RejectsAnImpossibleMove()
+    {
+        // Three pushes right drives the box into the far wall; the third cannot happen.
+        var result = SokobanEngine.Replay(0, new[] { 1, 1, 1 });
+
+        Assert.False(result.Valid);
+        Assert.NotNull(result.Rejection);
+    }
+
+    [Fact]
+    public void SokobanReplay_RejectsUnknownLevelsAndOverlongLogs()
+    {
+        Assert.False(SokobanEngine.Replay(-1, new[] { 1 }).Valid);
+        Assert.False(SokobanEngine.Replay(999, new[] { 1 }).Valid);
+        Assert.False(SokobanEngine.Replay(0, new int[SokobanEngine.MaxMoves + 1]).Valid);
+    }
+
+    [Fact]
+    public void SokobanReplay_IsDeterministic()
+    {
+        var a = SokobanEngine.Replay(0, new[] { 1, 1 });
+        var b = SokobanEngine.Replay(0, new[] { 1, 1 });
+
+        Assert.Equal(a.Solved, b.Solved);
+        Assert.Equal(a.Moves, b.Moves);
+    }
 }

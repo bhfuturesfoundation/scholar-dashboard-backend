@@ -7,9 +7,10 @@ namespace Auth.Models.Entities.Games
         public const string Game2048 = "tile-2048";
         public const string Minesweeper = "minesweeper";
         public const string Tetris = "tetris";
+        public const string Sokoban = "sokoban";
 
         public static bool IsKnown(string? gameId) =>
-            gameId is Sudoku or Game2048 or Minesweeper or Tetris;
+            gameId is Sudoku or Game2048 or Minesweeper or Tetris or Sokoban;
     }
 
     /// <summary>
@@ -42,6 +43,16 @@ namespace Auth.Models.Entities.Games
         /// invent a score, which is what the signature and the replay protect.
         /// </summary>
         public uint? Seed { get; set; }
+
+        /// <summary>Sokoban only: the level grid, in standard notation.</summary>
+        public string[]? Rows { get; set; }
+
+        /// <summary>Sokoban only: the move count a solid solution takes.</summary>
+        public int? Par { get; set; }
+
+        /// <summary>Sokoban only, for the level picker.</summary>
+        public string? LevelName { get; set; }
+        public int? LevelCount { get; set; }
 
         /// <summary>Minesweeper only.</summary>
         public int Width { get; set; }
@@ -135,6 +146,9 @@ namespace Auth.Models.Entities.Games
 
         /// <summary>2048 only: the largest tile reached.</summary>
         public int? HighestTile { get; set; }
+
+        /// <summary>Sokoban only.</summary>
+        public int? Moves { get; set; }
 
         /// <summary>Tetris only.</summary>
         public int? Lines { get; set; }
