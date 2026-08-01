@@ -11,6 +11,7 @@ using Auth.Services.Services.Suggestions;
 using Auth.Services.Services.Notifications;
 using Auth.Services.Interfaces.Games;
 using Auth.Services.Services.Games;
+using Auth.Services.Services.Games.Puzzles;
 using Auth.API.Seed;
 using Auth.Models.Data;
 using Auth.Services.Interfaces;
@@ -117,6 +118,11 @@ builder.Services.AddScoped<IVolunteeringService, VolunteeringService>();
 
 // Gamification & Audit
 builder.Services.AddScoped<IGameScoreService, GameScoreService>();
+
+// Scoped, unlike ArenaService. The puzzle games keep no state between requests — a board is
+// a pure function of its signed seed — so there is nothing for a singleton to hold, and scoped
+// lets this take the request's DbContext directly.
+builder.Services.AddScoped<IPuzzleService, PuzzleService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IOperationsService, OperationsService>();
 builder.Services.AddScoped<IBackupService, BackupService>();

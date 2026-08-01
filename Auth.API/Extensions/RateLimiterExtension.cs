@@ -63,6 +63,26 @@ namespace Auth.API.Extensions
                         });
                 });
 
+                // Dealing a puzzle is the one endpoint in this app where a single request costs
+                // real CPU: generating a Sudoku runs a backtracking solver about eighty times to
+                // prove the clues have a unique completion. That is milliseconds once and a way
+                // to pin a core in a loop. Partitioned per user rather than per IP, so a shared
+                // campus or office network cannot rate-limit itself.
+                options.AddPolicy("puzzle-deal", httpContext =>
+                {
+                    var userId = httpContext.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                                 ?? GetClientIpAddress(httpContext);
+
+                    return RateLimitPartition.GetFixedWindowLimiter(
+                        partitionKey: $"puzzle_{userId}",
+                        factory: _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = 30,
+                            Window = TimeSpan.FromMinutes(1),
+                            AutoReplenishment = true
+                        });
+                });
+
                 options.AddPolicy("signalr-hub", httpContext =>
                 {
                     var ipAddress = GetClientIpAddress(httpContext);
