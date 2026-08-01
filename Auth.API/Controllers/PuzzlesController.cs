@@ -69,6 +69,47 @@ namespace Auth.API.Controllers
                 : Ok(ApiResponse<SudokuHint>.SuccessResponse(hint, "Hint."));
         }
 
+        // ── Saves ─────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Stores the game in progress.
+        ///
+        /// Called on an interval and on unload, so it has to be cheap and it has to be safe to
+        /// call with nothing having changed. Returns 204 either way — the client has nothing to
+        /// do with a response, and a failed autosave is not something to interrupt a game over.
+        /// </summary>
+        [HttpPut("{gameId}/save")]
+        public async Task<IActionResult> Save(string gameId, [FromBody] SaveRequest request, CancellationToken cancellationToken)
+        {
+            await _puzzles.SaveAsync(GetUserId(), gameId, request.Ticket, request.State ?? string.Empty, cancellationToken);
+            return NoContent();
+        }
+
+        [HttpGet("{gameId}/save")]
+        public async Task<ActionResult<ApiResponse<PuzzleSaveDto?>>> LoadSave(string gameId, CancellationToken cancellationToken)
+        {
+            var save = await _puzzles.LoadSaveAsync(GetUserId(), gameId, cancellationToken);
+
+            // A missing save is the ordinary case, not a 404: the client asks on every open and
+            // "no game in progress" is a perfectly good answer.
+            return Ok(ApiResponse<PuzzleSaveDto?>.SuccessResponse(save, save is null ? "No saved game." : "Resumed."));
+        }
+
+        [HttpDelete("{gameId}/save")]
+        public async Task<IActionResult> ClearSave(string gameId, CancellationToken cancellationToken)
+        {
+            await _puzzles.ClearSaveAsync(GetUserId(), gameId, cancellationToken);
+            return NoContent();
+        }
+
+        public class SaveRequest
+        {
+            public string Ticket { get; set; } = string.Empty;
+
+            /// <summary>Client-defined JSON. The server stores it without looking inside.</summary>
+            public string? State { get; set; }
+        }
+
         public class OpenBoardRequest
         {
             public string Ticket { get; set; } = string.Empty;

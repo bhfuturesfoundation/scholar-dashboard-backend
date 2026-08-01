@@ -150,6 +150,108 @@ namespace Auth.Services.Services.Games.Puzzles
             return new SudokuHint { Cell = cell, Digit = puzzle.Solution[cell] };
         }
 
+        // ── Saves ─────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// A cap on the stored blob.
+        ///
+        /// The largest honest save is a long Tetris game — a few thousand placements at four
+        /// small numbers each, comfortably under 200 KB as JSON. This is not really a correctness
+        /// bound, it is a bound on how much a caller can park in the database for free.
+        /// </summary>
+        private const int MaxStateBytes = 256 * 1024;
+
+        public async Task SaveAsync(
+            string userId,
+            string gameId,
+            string ticket,
+            string state,
+            CancellationToken cancellationToken = default)
+        {
+            if (!PuzzleGames.IsKnown(gameId)) return;
+            if (state.Length > MaxStateBytes) return;
+
+            // The ticket must be this user's and still valid. Without the check, a save is a way
+            // to park arbitrary text under someone else's row.
+            if (_signer.Verify(ticket, userId) is null) return;
+
+            var existing = await _context.PuzzleSaves
+                .FirstOrDefaultAsync(s => s.UserId == userId && s.GameId == gameId, cancellationToken);
+
+            if (existing is null)
+            {
+                _context.PuzzleSaves.Add(new PuzzleSave
+                {
+                    UserId = userId,
+                    GameId = gameId,
+                    Ticket = ticket,
+                    State = state,
+                    UpdatedAt = DateTime.UtcNow,
+                });
+            }
+            else
+            {
+                existing.Ticket = ticket;
+                existing.State = state;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+
+            try
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                // Two tabs autosaving at once can race the unique index. Losing one autosave is
+                // not worth surfacing — the next one, seconds later, wins.
+                _logger.LogDebug("Concurrent puzzle save for {User}/{Game} was dropped.", userId, gameId);
+            }
+        }
+
+        public async Task<PuzzleSaveDto?> LoadSaveAsync(
+            string userId,
+            string gameId,
+            CancellationToken cancellationToken = default)
+        {
+            var save = await _context.PuzzleSaves
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.UserId == userId && s.GameId == gameId, cancellationToken);
+
+            if (save is null) return null;
+
+            // A save whose ticket has aged out cannot be scored any more, so offering to resume it
+            // would walk the player into a rejection at the end of a long game. Better to drop it
+            // and deal them a fresh board.
+            var ticket = _signer.Verify(save.Ticket, userId);
+            if (ticket is null)
+            {
+                _context.PuzzleSaves.Remove(new PuzzleSave { Id = save.Id });
+                await _context.SaveChangesAsync(cancellationToken);
+                return null;
+            }
+
+            var dealtAt = DateTimeOffset.FromUnixTimeMilliseconds(ticket.DealtAtUnixMs);
+
+            return new PuzzleSaveDto
+            {
+                Ticket = save.Ticket,
+                State = save.State,
+                UpdatedAt = save.UpdatedAt,
+                AgeSeconds = (int)Math.Max(0, (DateTimeOffset.UtcNow - dealtAt).TotalSeconds),
+            };
+        }
+
+        public async Task ClearSaveAsync(string userId, string gameId, CancellationToken cancellationToken = default)
+        {
+            var save = await _context.PuzzleSaves
+                .FirstOrDefaultAsync(s => s.UserId == userId && s.GameId == gameId, cancellationToken);
+
+            if (save is null) return;
+
+            _context.PuzzleSaves.Remove(save);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
         // ── Scoring ───────────────────────────────────────────────────────────
 
         public async Task<PuzzleOutcome> SubmitAsync(
@@ -203,6 +305,13 @@ namespace Auth.Services.Services.Games.Puzzles
                 Mode = ticket.Difficulty,
                 DurationSeconds = seconds,
             });
+
+            // The game is over, so its save is dead weight — and worse than dead weight if left,
+            // because the next visit would offer to resume a board that has already been scored.
+            var save = await _context.PuzzleSaves
+                .FirstOrDefaultAsync(s => s.UserId == userId && s.GameId == ticket.GameId, cancellationToken);
+
+            if (save is not null) _context.PuzzleSaves.Remove(save);
 
             await _context.SaveChangesAsync(cancellationToken);
 

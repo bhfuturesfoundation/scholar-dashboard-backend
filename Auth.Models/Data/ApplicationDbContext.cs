@@ -2,6 +2,7 @@ using Auth.Models.Entities;
 using Auth.Models.Entities.Email;
 using Auth.Models.Entities.Engagement;
 using Auth.Models.Entities.FLS;
+using Auth.Models.Entities.Games;
 using Auth.Models.Entities.Mailing;
 using Auth.Models.Entities.News;
 using Auth.Models.Entities.Notifications;
@@ -36,6 +37,7 @@ namespace Auth.Models.Data
 
         // Gamification
         public DbSet<GameScore> GameScores { get; set; }
+        public DbSet<PuzzleSave> PuzzleSaves { get; set; }
 
         // Audit
         public DbSet<AuditEvent> AuditEvents { get; set; }
@@ -113,6 +115,18 @@ namespace Auth.Models.Data
 
             builder.Entity<GameScore>()
                 .HasIndex(gs => new { gs.GameId, gs.Score });
+
+            builder.Entity<PuzzleSave>()
+                .HasOne(ps => ps.User)
+                .WithMany()
+                .HasForeignKey(ps => ps.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Unique, because resuming is the only thing a save is for: a second row for the same
+            // game would be an older board nobody will ever open. The upsert relies on this.
+            builder.Entity<PuzzleSave>()
+                .HasIndex(ps => new { ps.UserId, ps.GameId })
+                .IsUnique();
 
             // AuditEvent → User (nullable)
             builder.Entity<AuditEvent>()

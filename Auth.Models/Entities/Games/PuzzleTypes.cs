@@ -110,6 +110,16 @@ namespace Auth.Models.Entities.Games
         public bool UsedHold { get; set; }
     }
 
+    public class PuzzleSaveDto
+    {
+        public string Ticket { get; set; } = string.Empty;
+        public string State { get; set; } = string.Empty;
+        public DateTime UpdatedAt { get; set; }
+
+        /// <summary>Seconds since the game was dealt, so the client can show what it is resuming.</summary>
+        public int AgeSeconds { get; set; }
+    }
+
     public class PuzzleOutcome
     {
         public bool Accepted { get; set; }

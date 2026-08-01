@@ -19,6 +19,15 @@ namespace Auth.Services.Interfaces.Games
         /// </summary>
         SudokuHint? Hint(string userId, string ticket, int cell);
 
+        /// <summary>Stores or replaces the in-progress game for this user and puzzle.</summary>
+        Task SaveAsync(string userId, string gameId, string ticket, string state, CancellationToken cancellationToken = default);
+
+        /// <summary>The saved game, or null when there is none or it can no longer be scored.</summary>
+        Task<PuzzleSaveDto?> LoadSaveAsync(string userId, string gameId, CancellationToken cancellationToken = default);
+
+        /// <summary>Drops the save. Called when a game finishes or is abandoned.</summary>
+        Task ClearSaveAsync(string userId, string gameId, CancellationToken cancellationToken = default);
+
         /// <summary>
         /// Replays a submitted game, scores it, and records the result when it holds up.
         /// Never trusts a number from the caller.
