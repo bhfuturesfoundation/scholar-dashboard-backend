@@ -6,9 +6,10 @@ namespace Auth.Models.Entities.Games
         public const string Sudoku = "sudoku";
         public const string Game2048 = "tile-2048";
         public const string Minesweeper = "minesweeper";
+        public const string Tetris = "tetris";
 
         public static bool IsKnown(string? gameId) =>
-            gameId is Sudoku or Game2048 or Minesweeper;
+            gameId is Sudoku or Game2048 or Minesweeper or Tetris;
     }
 
     /// <summary>
@@ -30,6 +31,17 @@ namespace Auth.Models.Entities.Games
 
         /// <summary>2048 only: the opening 16-cell board.</summary>
         public int[]? Board { get; set; }
+
+        /// <summary>
+        /// Tetris only: the seed the piece bags are drawn from.
+        ///
+        /// Deliberately handed over. Tetris is the one game here where the client must agree with
+        /// the server on the piece sequence — the replay checks each placement against the piece
+        /// *its* bag dealt — so a client with a different bag would have every honest game
+        /// rejected. Knowing the sequence ahead is a modest advantage; it is not the ability to
+        /// invent a score, which is what the signature and the replay protect.
+        /// </summary>
+        public uint? Seed { get; set; }
 
         /// <summary>Minesweeper only.</summary>
         public int Width { get; set; }
@@ -82,6 +94,20 @@ namespace Auth.Models.Entities.Games
 
         /// <summary>Sudoku only. Each one costs a slice of the final score.</summary>
         public int HintsUsed { get; set; }
+
+        /// <summary>
+        /// Tetris: where each piece came to rest. Not the keypresses — see TetrisEngine for why
+        /// timing is deliberately kept out of the scored record.
+        /// </summary>
+        public TetrisPlacementDto[]? Placements { get; set; }
+    }
+
+    public class TetrisPlacementDto
+    {
+        public int Rotation { get; set; }
+        public int X { get; set; }
+        public int Y { get; set; }
+        public bool UsedHold { get; set; }
     }
 
     public class PuzzleOutcome
@@ -99,5 +125,10 @@ namespace Auth.Models.Entities.Games
 
         /// <summary>2048 only: the largest tile reached.</summary>
         public int? HighestTile { get; set; }
+
+        /// <summary>Tetris only.</summary>
+        public int? Lines { get; set; }
+        public int? Level { get; set; }
+        public int? Tetrises { get; set; }
     }
 }

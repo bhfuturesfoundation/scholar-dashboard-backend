@@ -119,9 +119,9 @@ builder.Services.AddScoped<IVolunteeringService, VolunteeringService>();
 // Gamification & Audit
 builder.Services.AddScoped<IGameScoreService, GameScoreService>();
 
-// Scoped, unlike ArenaService. The puzzle games keep no state between requests — a board is
-// a pure function of its signed seed — so there is nothing for a singleton to hold, and scoped
-// lets this take the request's DbContext directly.
+// Scoped: the puzzle games keep no state between requests — a board is a pure function of its
+// signed seed — so there is nothing to hold onto, and scoped lets this take the request's
+// DbContext directly.
 builder.Services.AddScoped<IPuzzleService, PuzzleService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IOperationsService, OperationsService>();
@@ -165,17 +165,6 @@ builder.Services.AddSingleton<INotificationRealtime, SignalRNotificationRealtime
 // process. A scoped tracker would be a fresh empty dictionary per request and would
 // always report nobody online.
 builder.Services.AddSingleton<IPresenceTracker, PresenceTracker>();
-
-// ── Comet Arena ──────────────────────────────────────────────────────────────
-//
-// Singletons, and they have to be: a match is live in-memory state shared by everyone
-// in it. A scoped ArenaService would hand each request its own empty world.
-//
-// This is what makes the leaderboard real. The server owns the simulation and does the
-// arithmetic, so a score was never in the client's hands to forge — see GameScore.Verified.
-builder.Services.AddSingleton<IArenaRealtime, SignalRArenaRealtime>();
-builder.Services.AddSingleton<IArenaService, ArenaService>();
-builder.Services.AddHostedService<ArenaTickService>();
 
 // Typed client so the push service gets connection pooling and the standard handler
 // lifetime rather than a socket per send.
@@ -350,8 +339,6 @@ app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub
 app.MapHub<NotificationsHub>("/hubs/notifications").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 app.MapHub<NotificationsHub>("/api/hubs/notifications").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 
-app.MapHub<ArenaHub>("/hubs/arena").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
-app.MapHub<ArenaHub>("/api/hubs/arena").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())

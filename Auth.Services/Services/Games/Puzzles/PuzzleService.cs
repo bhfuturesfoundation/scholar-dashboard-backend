@@ -89,6 +89,13 @@ namespace Auth.Services.Services.Games.Puzzles
                     break;
                 }
 
+                case PuzzleGames.Tetris:
+                {
+                    // The only field a Tetris client needs, and the only game that gets the seed.
+                    deal.Seed = seed;
+                    break;
+                }
+
                 case PuzzleGames.Minesweeper:
                 {
                     var spec = MinesweeperEngine.SpecFor(ClampMinesweeper(difficulty));
@@ -161,6 +168,7 @@ namespace Auth.Services.Services.Games.Puzzles
                 PuzzleGames.Sudoku => ScoreSudoku(ticket, submission, seconds),
                 PuzzleGames.Game2048 => Score2048(ticket, submission, seconds),
                 PuzzleGames.Minesweeper => ScoreMinesweeper(ticket, submission, seconds),
+                PuzzleGames.Tetris => ScoreTetris(ticket, submission, seconds),
                 _ => Rejected("Unknown puzzle."),
             };
 
@@ -264,6 +272,29 @@ namespace Auth.Services.Services.Games.Puzzles
                 Accepted = true,
                 Score = PuzzleScoring.FromTime(curve, seconds),
                 Seconds = seconds,
+            };
+        }
+
+        private static PuzzleOutcome ScoreTetris(PuzzleTicket ticket, PuzzleSubmission submission, int seconds)
+        {
+            var placements = (submission.Placements ?? Array.Empty<TetrisPlacementDto>())
+                .Select(p => new TetrisEngine.Placement(p.Rotation, p.X, p.Y, p.UsedHold))
+                .ToList();
+
+            var replay = TetrisEngine.Replay(ticket.Seed, placements);
+            if (!replay.Valid) return Rejected(replay.Rejection ?? "That game could not be replayed.");
+
+            // No time curve. Tetris already has a scoring system tuned over forty years — line
+            // values, the level multiplier, back-to-back — and layering a second one on top would
+            // only make the number incomparable with every other Tetris score anyone has seen.
+            return new PuzzleOutcome
+            {
+                Accepted = true,
+                Score = replay.Score,
+                Seconds = seconds,
+                Lines = replay.Lines,
+                Level = replay.Level,
+                Tetrises = replay.Tetrises,
             };
         }
 

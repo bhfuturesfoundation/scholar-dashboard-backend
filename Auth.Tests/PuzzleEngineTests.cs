@@ -737,4 +737,369 @@ public class PuzzleEngineTests
         Assert.Equal(50, items.Count);
         Assert.Equal(Enumerable.Range(0, 50), items.OrderBy(v => v));
     }
+
+    // ── Tetris ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Every piece must occupy exactly four distinct cells in all four rotations. A typo in the
+    /// shape table is otherwise invisible until someone reports that a piece "looks wrong", and
+    /// by then it has been in scored games for weeks.
+    /// </summary>
+    [Fact]
+    public void Shapes_AreFourCellsInEveryRotation()
+    {
+        foreach (var piece in Enum.GetValues<TetrisEngine.Piece>())
+        {
+            for (var rotation = 0; rotation < 4; rotation++)
+            {
+                var cells = TetrisEngine.CellsOf(piece, rotation, 0, 0);
+
+                Assert.Equal(4, cells.Length);
+                Assert.Equal(4, cells.Distinct().Count());
+                Assert.All(cells, c => Assert.InRange(c.X, 0, 3));
+                Assert.All(cells, c => Assert.InRange(c.Y, 0, 3));
+            }
+        }
+    }
+
+    /// <summary>Rotating O must be a no-op — it is the one piece SRS leaves alone.</summary>
+    [Fact]
+    public void Shapes_LeaveTheOPieceUnrotated()
+    {
+        var spawn = TetrisEngine.CellsOf(TetrisEngine.Piece.O, 0, 0, 0);
+
+        for (var rotation = 1; rotation < 4; rotation++)
+        {
+            Assert.Equal(spawn, TetrisEngine.CellsOf(TetrisEngine.Piece.O, rotation, 0, 0));
+        }
+    }
+
+    /// <summary>Four cells that do not touch are not a tetromino.</summary>
+    [Fact]
+    public void Shapes_AreConnected()
+    {
+        foreach (var piece in Enum.GetValues<TetrisEngine.Piece>())
+        {
+            for (var rotation = 0; rotation < 4; rotation++)
+            {
+                var cells = TetrisEngine.CellsOf(piece, rotation, 0, 0).ToHashSet();
+
+                var reached = new HashSet<(int X, int Y)>();
+                var stack = new Stack<(int X, int Y)>();
+                stack.Push(cells.First());
+
+                while (stack.Count > 0)
+                {
+                    var cell = stack.Pop();
+                    if (!reached.Add(cell)) continue;
+
+                    var neighbours = new[]
+                    {
+                        (cell.X + 1, cell.Y), (cell.X - 1, cell.Y),
+                        (cell.X, cell.Y + 1), (cell.X, cell.Y - 1),
+                    };
+
+                    foreach (var next in neighbours)
+                    {
+                        if (cells.Contains(next)) stack.Push(next);
+                    }
+                }
+
+                Assert.Equal(4, reached.Count);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The bag is why the game rewards planning rather than luck: seven pieces, each exactly
+    /// once, so an I-piece can never be withheld for thirty placements.
+    /// </summary>
+    [Fact]
+    public void Bag_ContainsEveryPieceExactlyOnce()
+    {
+        var rng = new DeterministicRng(90210);
+
+        for (var round = 0; round < 40; round++)
+        {
+            var bag = TetrisEngine.Bag(ref rng);
+
+            Assert.Equal(7, bag.Length);
+            Assert.Equal(7, bag.Distinct().Count());
+        }
+    }
+
+    [Fact]
+    public void Bag_IsReproducibleFromItsSeed()
+    {
+        var a = new DeterministicRng(5150);
+        var b = new DeterministicRng(5150);
+
+        Assert.Equal(TetrisEngine.Bag(ref a), TetrisEngine.Bag(ref b));
+    }
+
+    [Fact]
+    public void ClearLines_RemovesFullRowsAndDropsWhatWasAbove()
+    {
+        var board = new bool[TetrisEngine.Cells];
+
+        for (var x = 0; x < TetrisEngine.Width; x++) board[19 * TetrisEngine.Width + x] = true;
+        board[18 * TetrisEngine.Width + 3] = true;
+
+        var cleared = TetrisEngine.ClearLines(board);
+
+        Assert.Equal(1, cleared);
+
+        // The stray cell fell one row, into what is now the bottom.
+        Assert.True(board[19 * TetrisEngine.Width + 3]);
+        Assert.Equal(1, board.Count(c => c));
+    }
+
+    /// <summary>Four at once, which is the clear the whole scoring table is built around.</summary>
+    [Fact]
+    public void ClearLines_HandlesFourRowsInOnePass()
+    {
+        var board = new bool[TetrisEngine.Cells];
+
+        for (var y = 16; y <= 19; y++)
+        {
+            for (var x = 0; x < TetrisEngine.Width; x++) board[y * TetrisEngine.Width + x] = true;
+        }
+
+        board[15 * TetrisEngine.Width] = true;
+
+        Assert.Equal(4, TetrisEngine.ClearLines(board));
+        Assert.True(board[19 * TetrisEngine.Width]);
+        Assert.Equal(1, board.Count(c => c));
+    }
+
+    [Fact]
+    public void ClearLines_LeavesAnIncompleteRowAlone()
+    {
+        var board = new bool[TetrisEngine.Cells];
+        for (var x = 0; x < TetrisEngine.Width - 1; x++) board[19 * TetrisEngine.Width + x] = true;
+
+        Assert.Equal(0, TetrisEngine.ClearLines(board));
+        Assert.Equal(TetrisEngine.Width - 1, board.Count(c => c));
+    }
+
+    /// <summary>Flat on the floor is legal; the same placement one row higher is not.</summary>
+    [Fact]
+    public void TetrisReplay_RequiresEachPlacementToRestOnSomething()
+    {
+        var rng = new DeterministicRng(2024);
+        var first = TetrisEngine.Bag(ref rng)[0];
+        var floorY = 19 - TetrisEngine.CellsOf(first, 0, 0, 0).Max(c => c.Y);
+
+        var onFloor = TetrisEngine.Replay(2024, new[] { new TetrisEngine.Placement(0, 0, floorY, false) });
+        Assert.True(onFloor.Valid);
+
+        var floating = TetrisEngine.Replay(2024, new[] { new TetrisEngine.Placement(0, 0, floorY - 1, false) });
+        Assert.False(floating.Valid);
+        Assert.Contains("rest", floating.Rejection!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TetrisReplay_RejectsPlacementsOffTheBoardOrOverlapping()
+    {
+        var rng = new DeterministicRng(31337);
+        var first = TetrisEngine.Bag(ref rng)[0];
+        var floorY = 19 - TetrisEngine.CellsOf(first, 0, 0, 0).Max(c => c.Y);
+
+        Assert.False(TetrisEngine.Replay(31337, new[] { new TetrisEngine.Placement(0, -5, floorY, false) }).Valid);
+        Assert.False(TetrisEngine.Replay(31337, new[] { new TetrisEngine.Placement(0, 50, floorY, false) }).Valid);
+
+        // Two identical placements: the second lands inside the first.
+        var twice = new[]
+        {
+            new TetrisEngine.Placement(0, 0, floorY, false),
+            new TetrisEngine.Placement(0, 0, floorY, false),
+        };
+        Assert.False(TetrisEngine.Replay(31337, twice).Valid);
+    }
+
+    [Fact]
+    public void TetrisReplay_ScoresNothingForAnEmptyLog()
+    {
+        var result = TetrisEngine.Replay(7, Array.Empty<TetrisEngine.Placement>());
+
+        Assert.True(result.Valid);
+        Assert.Equal(0, result.Score);
+        Assert.Equal(0, result.Lines);
+    }
+
+    [Fact]
+    public void TetrisReplay_RejectsALogLongerThanTheCap()
+    {
+        var log = new TetrisEngine.Placement[TetrisEngine.MaxPlacements + 1];
+        Array.Fill(log, new TetrisEngine.Placement(0, 0, 0, false));
+
+        Assert.False(TetrisEngine.Replay(1, log).Valid);
+    }
+
+    /// <summary>
+    /// A completed row pays the guideline single: 100 points at level one.
+    ///
+    /// Built from I + J + L, which is the one combination that tiles a ten-wide row with flat
+    /// bottoms — 4 + 3 + 3 — and the bag guarantees exactly one of each per seven pieces. The
+    /// seed search finds a bag that opens with those three in any order, so no other shape has to
+    /// be placed before the row completes.
+    /// </summary>
+    [Fact]
+    public void TetrisReplay_ScoresALineClear()
+    {
+        var wanted = new[] { TetrisEngine.Piece.I, TetrisEngine.Piece.J, TetrisEngine.Piece.L };
+
+        // Columns each piece fills on the bottom row: I spans 0-3, J spans 4-6, L spans 7-9.
+        var column = new Dictionary<TetrisEngine.Piece, int>
+        {
+            [TetrisEngine.Piece.I] = 0,
+            [TetrisEngine.Piece.J] = 4,
+            [TetrisEngine.Piece.L] = 7,
+        };
+
+        for (uint seed = 1; seed < 20_000; seed++)
+        {
+            var rng = new DeterministicRng(seed);
+            var bag = TetrisEngine.Bag(ref rng);
+
+            if (!bag.Take(3).ToHashSet().SetEquals(wanted)) continue;
+
+            var placements = bag.Take(3)
+                .Select(piece => new TetrisEngine.Placement(0, column[piece], 18, false))
+                .ToList();
+
+            var result = TetrisEngine.Replay(seed, placements);
+
+            Assert.True(result.Valid, result.Rejection);
+            Assert.Equal(1, result.Lines);
+
+            // A single at level one. No combo (the first clear is combo zero), no back-to-back,
+            // and not a perfect clear — J and L each leave one cell on the row above.
+            Assert.Equal(100, result.Score);
+            return;
+        }
+
+        Assert.Fail("No seed in range opened with I, J and L in the first three pieces.");
+    }
+
+    /// <summary>
+    /// A row that is not full pays nothing. Shape-agnostic: in rotation 0 every tetromino has its
+    /// lowest cells on the second row of its box, so y = 18 seats any of them on the floor.
+    /// </summary>
+    [Fact]
+    public void TetrisReplay_PaysNothingForAPartialRow()
+    {
+        var result = TetrisEngine.Replay(12345, new[] { new TetrisEngine.Placement(0, 0, 18, false) });
+
+        Assert.True(result.Valid, result.Rejection);
+        Assert.Equal(0, result.Lines);
+        Assert.Equal(0, result.Score);
+    }
+
+    /// <summary>Same seed, same placements, same score — what the leaderboard rests on.</summary>
+    [Fact]
+    public void TetrisReplay_IsDeterministic()
+    {
+        var rng = new DeterministicRng(4711);
+        var first = TetrisEngine.Bag(ref rng)[0];
+        var floorY = 19 - TetrisEngine.CellsOf(first, 0, 0, 0).Max(c => c.Y);
+
+        var log = new[] { new TetrisEngine.Placement(0, 0, floorY, false) };
+
+        var a = TetrisEngine.Replay(4711, log);
+        var b = TetrisEngine.Replay(4711, log);
+
+        Assert.True(a.Valid);
+        Assert.Equal(a.Score, b.Score);
+        Assert.Equal(a.Lines, b.Lines);
+    }
+
+    /// <summary>
+    /// Holding on the first placement banks the current piece and plays the next one, so the
+    /// piece that lands is genuinely different from the no-hold case.
+    /// </summary>
+    [Fact]
+    public void TetrisReplay_TracksTheHeldPieceAcrossPlacements()
+    {
+        for (uint seed = 1; seed < 4000; seed++)
+        {
+            var rng = new DeterministicRng(seed);
+            var bag = TetrisEngine.Bag(ref rng);
+            if (bag[0] != TetrisEngine.Piece.I || bag[1] != TetrisEngine.Piece.O) continue;
+
+            // The I-piece lies flat across row 19 when placed at y = 18 (its cells sit on the
+            // shape's second row), covering columns 0-3.
+            var withoutHold = TetrisEngine.Replay(seed, new[] { new TetrisEngine.Placement(0, 0, 18, false) });
+            Assert.True(withoutHold.Valid, withoutHold.Rejection);
+
+            // Holding plays the O instead, which occupies columns 0-1 over rows 18-19.
+            var withHold = TetrisEngine.Replay(seed, new[] { new TetrisEngine.Placement(0, 0, 18, true) });
+            Assert.True(withHold.Valid, withHold.Rejection);
+
+            // Column 2 on row 19 is free after the O but taken after the I — so a placement there
+            // is legal only in the hold case, which proves the two diverged.
+            var afterHold = TetrisEngine.Replay(seed, new[]
+            {
+                new TetrisEngine.Placement(0, 0, 18, true),
+                new TetrisEngine.Placement(0, 2, 18, false),
+            });
+            Assert.True(afterHold.Valid, afterHold.Rejection);
+            return;
+        }
+
+        Assert.Fail("No seed in range opened with I then O.");
+    }
+
+    /// <summary>
+    /// Cross-language parity for the Tetris bag.
+    ///
+    /// Tetris is the one game where the browser derives the piece sequence itself, because the
+    /// replay checks each placement against the piece *this* bag dealt — a client playing a
+    /// different sequence would have every honest game rejected as a forgery.
+    ///
+    /// These literals were produced by the TypeScript implementation in tetris.ts. They are
+    /// pinned here rather than left to integration testing because the failure mode is silent:
+    /// JavaScript bitwise operators work on signed 32-bit ints, so an implementation missing one
+    /// `>>> 0` agrees with this one for a while and then quietly stops. If this test ever fails,
+    /// the two languages have diverged and every Tetris submission is about to be rejected.
+    /// </summary>
+    [Theory]
+    [InlineData(12345u, new[] { 1, 0, 5, 2, 4, 6, 3 }, new[] { 4, 6, 3, 0, 5, 2, 1 })]
+    [InlineData(5150u, new[] { 3, 6, 4, 0, 5, 2, 1 }, new[] { 2, 0, 3, 6, 1, 5, 4 })]
+    [InlineData(90210u, new[] { 4, 2, 5, 1, 6, 3, 0 }, new[] { 3, 2, 0, 1, 5, 4, 6 })]
+    public void TetrisBag_MatchesTheBrowserImplementation(uint seed, int[] first, int[] second)
+    {
+        var rng = new DeterministicRng(seed);
+
+        Assert.Equal(first, TetrisEngine.Bag(ref rng).Select(p => (int)p));
+        Assert.Equal(second, TetrisEngine.Bag(ref rng).Select(p => (int)p));
+    }
+
+    /// <summary>
+    /// The *schedule* on which bags are drawn, not just their contents.
+    ///
+    /// This is a separate property from bag parity and a nastier one. Both sides share one
+    /// generator, so they must draw bags at the same moments as well as produce the same values.
+    /// The queue is seeded with a bag before any piece is taken and topped up with `if`, not
+    /// `while` — a `while` fills an empty queue to fourteen where this stops at seven, which
+    /// consumes an extra bag up front and shifts every piece from then on. Bag parity still
+    /// passes in that world; the game simply desynchronises and rejects honest runs.
+    ///
+    /// Literals produced by the browser implementation in TetrisGame.tsx.
+    /// </summary>
+    [Fact]
+    public void TetrisPieceSchedule_MatchesTheBrowserImplementation()
+    {
+        var rng = new DeterministicRng(12345);
+        var queue = new Queue<TetrisEngine.Piece>(TetrisEngine.Bag(ref rng));
+        var dealt = new List<int>();
+
+        for (var i = 0; i < 15; i++)
+        {
+            if (queue.Count <= 7) foreach (var piece in TetrisEngine.Bag(ref rng)) queue.Enqueue(piece);
+            dealt.Add((int)queue.Dequeue());
+        }
+
+        Assert.Equal(new[] { 1, 0, 5, 2, 4, 6, 3, 4, 6, 3, 0, 5, 2, 1, 4 }, dealt);
+    }
 }
