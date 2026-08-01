@@ -56,6 +56,13 @@ namespace Auth.Models.Constants
         /// <summary>Params: status, excerpt. Sent to the author when staff triage it.</summary>
         public const string SuggestionStatusChanged = "suggestion.statusChanged";
 
+        // ── Social ────────────────────────────────────────────────────────────
+        /// <summary>Params: fromName. Someone said hello and nothing more.</summary>
+        public const string Poked = "social.poked";
+
+        /// <summary>Params: fromName, gameName. Carries a link straight into the match.</summary>
+        public const string MinigameInvite = "minigame.invite";
+
         // ── Broadcast ─────────────────────────────────────────────────────────
         /// <summary>Params: title, body. Written by staff, not translated.</summary>
         public const string Announcement = "announcement.custom";
@@ -88,6 +95,9 @@ namespace Auth.Models.Constants
                 [StatusChanged] = NotificationCategory.Mentorship,
 
                 [SuggestionStatusChanged] = NotificationCategory.Mentorship,
+
+                [Poked] = NotificationCategory.Minigame,
+                [MinigameInvite] = NotificationCategory.Minigame,
 
                 [Announcement] = NotificationCategory.Announcement,
 

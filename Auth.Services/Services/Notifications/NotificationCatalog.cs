@@ -44,6 +44,14 @@ namespace Auth.Services.Services.Notifications
                 "Your {monthLabel} journal was received",
                 "Thanks — your journal for {monthLabel} is in. You can see how your submissions are trending on your progress page."),
 
+            [NotificationKeys.Poked] = new(
+                "{fromName} poked you",
+                "{fromName} poked you. Say hello back?"),
+
+            [NotificationKeys.MinigameInvite] = new(
+                "{fromName} wants to play {gameName}",
+                "{fromName} invited you to a game of {gameName}. Open the app to join."),
+
             [NotificationKeys.KudosReceived] = new(
                 "{fromName} recognised you",
                 "{fromName} sent you kudos for {categoryLabel}."),
@@ -112,6 +120,14 @@ namespace Auth.Services.Services.Notifications
             [NotificationKeys.JournalReceived] = new(
                 "Vaš dnevnik za {monthLabel} je zaprimljen",
                 "Hvala — dnevnik za {monthLabel} je zaprimljen. Svoj napredak možete pratiti na stranici napretka."),
+
+            [NotificationKeys.Poked] = new(
+                "{fromName} vas je munuo/la",
+                "{fromName} vas je munuo/la. Javite se nazad?"),
+
+            [NotificationKeys.MinigameInvite] = new(
+                "{fromName} vas zove na partiju: {gameName}",
+                "{fromName} vas je pozvao/la na partiju igre {gameName}. Otvorite aplikaciju da se pridružite."),
 
             [NotificationKeys.KudosReceived] = new(
                 "Dobili ste pohvalu od osobe {fromName}",
