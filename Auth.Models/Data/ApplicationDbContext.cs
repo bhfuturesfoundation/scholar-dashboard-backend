@@ -400,6 +400,26 @@ namespace Auth.Models.Data
             builder.Entity<Notification>()
                 .HasIndex(n => new { n.UserId, n.CollapseKey, n.CreatedAt });
 
+            // Question.Order decides the sequence scholars answer in, so two active questions
+            // claiming the same position leaves the journal ordering undefined — Postgres is
+            // free to return either first, and it does not have to be consistent between
+            // requests.
+            //
+            // QuestionService already refused a duplicate on create, but that is a
+            // check-then-act: two admins creating at once could both pass it, and neither
+            // the update path nor reactivation checked at all. Those service checks stay
+            // (they are what turns this into a 409 with a readable message rather than a
+            // database exception) but the guarantee belongs here.
+            //
+            // Filtered to active rows on purpose: the archive is where deactivated questions
+            // pile up, and old ones there routinely share an order with something live. They
+            // are not rendered in sequence, so the collision is meaningless for them.
+            builder.Entity<Question>()
+                .HasIndex(q => q.Order)
+                .IsUnique()
+                .HasFilter("\"Active\"")
+                .HasDatabaseName("IX_Questions_Order_ActiveUnique");
+
             // The outbox drain: everything still waiting to go out by email or push.
             builder.Entity<Notification>()
                 .HasIndex(n => new { n.WantsEmail, n.EmailSentAt, n.DeferredUntil });

@@ -40,11 +40,24 @@ namespace Auth.Services.Services
             return questions;
         }
 
+        /// <summary>
+        /// Whether another active question already occupies <paramref name="order"/>.
+        /// </summary>
+        /// <remarks>
+        /// The unique filtered index on (Order) WHERE Active is what actually guarantees this;
+        /// these checks exist so the caller gets a 409 with a sentence they can act on instead
+        /// of a raw constraint violation. Only active questions are considered — the archive is
+        /// not rendered in sequence, so a deactivated question sharing an order is harmless.
+        /// </remarks>
+        private Task<bool> OrderTakenAsync(int order, int? excludingQuestionId = null) =>
+            _context.Questions.AnyAsync(q =>
+                q.Order == order &&
+                q.Active &&
+                (excludingQuestionId == null || q.QuestionId != excludingQuestionId));
+
         public async Task<Question> CreateQuestionAsync(Question question)
         {
-            // order check (avoid duplicates in ordering)
-            bool orderExists = await _context.Questions.AnyAsync(q => q.Order == question.Order && q.Active);
-            if (orderExists)
+            if (await OrderTakenAsync(question.Order))
             {
                 _logger.LogWarning("Question with order {Order} already exists", question.Order);
                 throw new ConflictException($"A question with order {question.Order} already exists.");
@@ -64,6 +77,17 @@ namespace Auth.Services.Services
             {
                 _logger.LogWarning("Question {Id} not found for update", questionId);
                 throw new NotFoundException("Question", questionId.ToString());
+            }
+
+            // Create refused a duplicate order; this path did not, so the way to end up with
+            // two active questions at position 3 was to create the second at 4 and then edit
+            // it. Excludes itself, so saving a question without moving it is not a conflict.
+            if (updated.Active && await OrderTakenAsync(updated.Order, questionId))
+            {
+                _logger.LogWarning(
+                    "Question {Id} cannot take order {Order}; another active question holds it",
+                    questionId, updated.Order);
+                throw new ConflictException($"A question with order {updated.Order} already exists.");
             }
 
             existing.Text = updated.Text;
@@ -114,6 +138,18 @@ namespace Auth.Services.Services
             {
                 _logger.LogWarning("Question {Id} not found for reactivation", questionId);
                 throw new NotFoundException("Question", questionId.ToString());
+            }
+
+            // Restoring an archived question puts it back into the sequence, and its old order
+            // may have been handed to something else in the meantime. Without this the restore
+            // silently produced the duplicate the create path was written to prevent.
+            if (await OrderTakenAsync(existing.Order, questionId))
+            {
+                _logger.LogWarning(
+                    "Question {Id} cannot be reactivated; order {Order} is taken",
+                    questionId, existing.Order);
+                throw new ConflictException(
+                    $"A question with order {existing.Order} already exists. Change the order before reactivating this one.");
             }
 
             existing.Active = true;

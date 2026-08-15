@@ -1744,6 +1744,11 @@ namespace Auth.Models.Migrations
 
                     b.HasKey("QuestionId");
 
+                    b.HasIndex("Order")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Questions_Order_ActiveUnique")
+                        .HasFilter("\"Active\"");
+
                     b.ToTable("Questions");
                 });
 
