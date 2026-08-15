@@ -26,20 +26,30 @@ namespace Auth.Services.Services.Mailing
         /// Accepted header spellings per field, folded. English and Bosnian/Croatian/Serbian,
         /// since both appear in real source files.
         /// </summary>
-        private static readonly Dictionary<string, string[]> ColumnAliases = new(StringComparer.Ordinal)
+        /// <summary>
+        /// Spreadsheet headers this importer understands, folded to lowercase words.
+        ///
+        /// Public so tests can assert against the real table rather than a copy that drifts.
+        /// The match is exact on the folded header, not a substring search, which is why every
+        /// phrasing a partner actually sends has to appear here. "Ime kompanije" matching nothing
+        /// is not a cosmetic gap: it meant the team's own export imported rows with no name.
+        /// </summary>
+        public static readonly Dictionary<string, string[]> ColumnAliases = new(StringComparer.Ordinal)
         {
-            ["name"] = new[] { "name", "firm", "firm name", "company", "company name", "organisation", "organization", "naziv", "firma", "kompanija", "preduzece", "ime" },
+            ["name"] = new[] { "name", "firm", "firm name", "company", "company name", "organisation", "organization", "naziv", "firma", "kompanija", "preduzece", "ime", "ime kompanije", "naziv kompanije", "naziv firme", "ime firme" },
             ["legalname"] = new[] { "legal name", "registered name", "puni naziv", "pravni naziv" },
-            ["email"] = new[] { "email", "e mail", "mail", "email address", "e mail address", "kontakt email", "eposta", "e posta" },
+            ["email"] = new[] { "email", "e mail", "mail", "email address", "e mail address", "kontakt email", "eposta", "e posta", "kontakt mail", "email kompanije" },
             ["website"] = new[] { "website", "web", "url", "site", "web site", "web stranica", "stranica" },
             ["phone"] = new[] { "phone", "telephone", "tel", "mobile", "phone number", "telefon", "broj telefona", "kontakt telefon" },
             ["address"] = new[] { "address", "street", "adresa", "ulica" },
             ["city"] = new[] { "city", "town", "grad", "mjesto", "mesto" },
             ["country"] = new[] { "country", "drzava", "zemlja" },
-            ["type"] = new[] { "type", "firm type", "category", "sector", "industry", "tip", "vrsta", "kategorija", "djelatnost", "delatnost" },
+            ["type"] = new[] { "type", "firm type", "category", "sector", "industry", "tip", "vrsta", "kategorija", "djelatnost", "delatnost", "tip kompanije", "vrsta kompanije", "tip firme" },
             ["contactname"] = new[] { "contact", "contact name", "contact person", "person", "kontakt osoba", "osoba", "kontakt ime" },
             ["contactrole"] = new[] { "role", "title", "position", "job title", "pozicija", "funkcija", "radno mjesto" },
             ["notes"] = new[] { "notes", "note", "comment", "comments", "napomena", "napomene", "komentar" },
+            ["cc"] = new[] { "cc", "cc email", "copy", "kopija", "cc adresa" },
+            ["salutation"] = new[] { "salutation", "greeting", "oslovljavanje", "pozdrav", "obracanje" },
         };
 
         /// <summary>Cap on reported issues so a badly broken file can't return megabytes.</summary>
@@ -198,6 +208,8 @@ namespace Auth.Services.Services.Mailing
                 firm.City = SpreadsheetReader.Value(row, map, "city")?.Trim() ?? firm.City;
                 firm.Country = SpreadsheetReader.Value(row, map, "country")?.Trim() ?? firm.Country;
                 firm.ContactPersonRole = SpreadsheetReader.Value(row, map, "contactrole")?.Trim() ?? firm.ContactPersonRole;
+                firm.CcEmail = SpreadsheetReader.Value(row, map, "cc")?.Trim() ?? firm.CcEmail;
+                firm.Salutation = SpreadsheetReader.Value(row, map, "salutation")?.Trim() ?? firm.Salutation;
 
                 var notes = SpreadsheetReader.Value(row, map, "notes");
                 if (!string.IsNullOrWhiteSpace(notes)) firm.Notes = notes.Trim();

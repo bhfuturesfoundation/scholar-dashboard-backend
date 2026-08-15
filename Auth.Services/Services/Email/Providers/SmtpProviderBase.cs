@@ -30,6 +30,23 @@ namespace Auth.Services.Services.Email.Providers
         protected abstract string? DefaultFromEmail { get; }
         protected abstract string? DefaultFromName { get; }
 
+        /// <summary>
+        /// Splits an operator-entered CC field.
+        ///
+        /// Accepts commas and semicolons because the team's spreadsheet uses both, sometimes in
+        /// the same cell. Blank entries are dropped rather than passed on as empty addresses.
+        /// </summary>
+        protected static IEnumerable<string> SplitAddresses(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) yield break;
+
+            foreach (var part in value.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var trimmed = part.Trim();
+                if (trimmed.Length > 0) yield return trimmed;
+            }
+        }
+
         public async Task<EmailSendResult> SendAsync(OutboundEmail email, CancellationToken cancellationToken = default)
         {
             if (!IsConfigured)
@@ -52,6 +69,21 @@ namespace Auth.Services.Services.Email.Providers
                 message.To.Add(string.IsNullOrWhiteSpace(email.ToName)
                     ? new MailAddress(email.ToEmail)
                     : new MailAddress(email.ToEmail, email.ToName));
+
+                // A malformed CC must not cost us the email. The address is operator-entered
+                // free text from a spreadsheet, so one bad entry among hundreds is expected —
+                // and the recipient still wants the message even if the copy cannot be sent.
+                foreach (var cc in SplitAddresses(email.Cc))
+                {
+                    try
+                    {
+                        message.CC.Add(new MailAddress(cc));
+                    }
+                    catch (FormatException)
+                    {
+                        _logger.LogWarning("[{Key}] Skipped malformed CC address '{Cc}'.", Key, cc);
+                    }
+                }
 
                 if (!string.IsNullOrWhiteSpace(email.TextBody))
                 {

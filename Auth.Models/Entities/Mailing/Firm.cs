@@ -31,6 +31,26 @@ namespace Auth.Models.Entities.Mailing
         /// </summary>
         public string? NormalizedEmail { get; set; }
 
+        /// <summary>
+        /// Address to copy on outreach — usually a shared inbox or the contact person's manager.
+        ///
+        /// The partnerships team keeps this per firm in their own sheet, and it matters: several
+        /// organisations only reply when the general office address is copied. Kept as free text
+        /// rather than a list because that is how they maintain it; the dispatcher splits on
+        /// commas and semicolons.
+        /// </summary>
+        public string? CcEmail { get; set; }
+
+        /// <summary>
+        /// The exact greeting line, when the team has decided one — e.g. "Dear Acme d.o.o. team,".
+        ///
+        /// Stored rather than always generated because their sheet already carries a hand-checked
+        /// salutation for every firm, and a name that reads correctly is the difference between an
+        /// email that looks personal and one that looks merged. Templates fall back to building a
+        /// greeting from the firm name when this is empty.
+        /// </summary>
+        public string? Salutation { get; set; }
+
         public string? Website { get; set; }
         public string? Phone { get; set; }
         public string? Address { get; set; }

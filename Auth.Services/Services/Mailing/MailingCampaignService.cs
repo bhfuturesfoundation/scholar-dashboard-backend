@@ -322,6 +322,12 @@ namespace Auth.Services.Services.Mailing
                     {
                         ToEmail = firm.Email ?? string.Empty,
                         ToName = toName,
+
+                        // The firm's own CC — usually a general office inbox. Several
+                        // organisations only ever reply when it is copied, which is why the
+                        // team maintains it per firm rather than as one campaign-wide address.
+                        Cc = firm.CcEmail,
+
                         Subject = rendered.Subject,
                         HtmlBody = rendered.HtmlBody,
                         TextBody = rendered.TextBody,
@@ -607,7 +613,20 @@ namespace Auth.Services.Services.Mailing
                 // on the firm variant, so one greeting line works in both templates.
                 ["greetingName"] = variant == TemplateVariant.Person && !string.IsNullOrWhiteSpace(firstName)
                     ? firstName
-                    : firm.Name
+                    : firm.Name,
+
+                // The whole greeting line, not just a name.
+                //
+                // The partnerships team maintains a hand-checked salutation per firm, because
+                // the generated form gets it wrong often enough to matter — quoted trading
+                // names, universities that want their title, firms whose name already ends in
+                // a word that makes "team" read badly. When they have written one, use it;
+                // otherwise fall back to the shape their sheet uses.
+                ["salutation"] = !string.IsNullOrWhiteSpace(firm.Salutation)
+                    ? firm.Salutation!.Trim()
+                    : variant == TemplateVariant.Person && !string.IsNullOrWhiteSpace(firstName)
+                        ? $"Dear {firstName},"
+                        : $"Dear {firm.Name} team,"
             };
 
             // Operator-supplied fields last so a campaign can override a computed default.
@@ -632,6 +651,7 @@ namespace Auth.Services.Services.Mailing
                 ["contactRole"] = "Direktor",
                 ["firstName"] = "Amir",
                 ["greetingName"] = "Amir",
+                ["salutation"] = "Dear Example d.o.o. team,",
                 ["year"] = DateTime.UtcNow.Year.ToString()
             };
 

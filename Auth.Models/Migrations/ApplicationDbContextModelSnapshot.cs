@@ -783,6 +783,9 @@ namespace Auth.Models.Migrations
                     b.Property<string>("Address")
                         .HasColumnType("text");
 
+                    b.Property<string>("CcEmail")
+                        .HasColumnType("text");
+
                     b.Property<string>("City")
                         .HasColumnType("text");
 
@@ -836,6 +839,9 @@ namespace Auth.Models.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("Phone")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Salutation")
                         .HasColumnType("text");
 
                     b.Property<int>("Status")

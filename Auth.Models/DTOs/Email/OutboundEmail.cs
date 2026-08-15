@@ -25,6 +25,18 @@ namespace Auth.Models.DTOs.Email
         public string? ReplyTo { get; set; }
 
         /// <summary>
+        /// Addresses to copy, comma or semicolon separated.
+        ///
+        /// Carried on the message rather than configured per provider because it is per
+        /// *recipient*: the partnerships team keeps a CC on many firms — usually the general
+        /// office inbox — and several organisations only ever reply when it is present.
+        ///
+        /// Not every provider can send a CC. Those that cannot ignore this rather than failing,
+        /// because losing the copy is a smaller harm than losing the email.
+        /// </summary>
+        public string? Cc { get; set; }
+
+        /// <summary>
         /// Free-form tag echoed into logs and the campaign audit trail — useful for
         /// correlating a delivery back to the campaign that produced it.
         /// </summary>

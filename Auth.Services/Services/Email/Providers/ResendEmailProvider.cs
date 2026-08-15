@@ -61,6 +61,10 @@ namespace Auth.Services.Services.Email.Providers
                 ["html"] = email.HtmlBody,
                 ["text"] = email.TextBody,
                 ["reply_to"] = email.ReplyTo,
+
+                // Omitted entirely when empty rather than sent as an empty array — Resend
+                // rejects `"cc": [""]` as a malformed address and would fail the whole send.
+                ["cc"] = SplitAddresses(email.Cc) is { Length: > 0 } cc ? cc : null,
                 ["tags"] = string.IsNullOrWhiteSpace(email.Tag)
                     ? null
                     : new[] { new { name = "campaign", value = Sanitize(email.Tag) } }
@@ -103,6 +107,15 @@ namespace Auth.Services.Services.Email.Providers
                 return EmailSendResult.Fail(Key, ex.Message);
             }
         }
+
+        /// <summary>Splits an operator-entered CC field on commas or semicolons.</summary>
+        private static string[] SplitAddresses(string? value) =>
+            string.IsNullOrWhiteSpace(value)
+                ? Array.Empty<string>()
+                : value.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                       .Select(part => part.Trim())
+                       .Where(part => part.Length > 0)
+                       .ToArray();
 
         /// <summary>Resend tag values only accept ASCII letters, digits, underscore and dash.</summary>
         private static string Sanitize(string value) =>
