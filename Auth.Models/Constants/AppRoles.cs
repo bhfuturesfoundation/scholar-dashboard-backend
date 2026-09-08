@@ -53,14 +53,14 @@ namespace Auth.Models.Constants
         /// <summary>
         /// May create and download database backups.
         ///
-        /// Admin only, and deliberately narrower than <see cref="Operations"/>. A backup is a
-        /// copy of every scholar's journal entries — personal reflections written in
-        /// confidence — plus the full user table. That is the most sensitive artefact the
-        /// system can produce, and one compromised account holding this permission is a
-        /// complete data breach rather than a nuisance. Program managers get scholar exports,
-        /// which contain only the fields they already see in the UI.
+        /// A backup is a copy of every scholar's journal entries — personal reflections
+        /// written in confidence — plus the full user table, making it the most sensitive
+        /// artefact the system can produce; a compromised account holding this permission
+        /// is a complete data breach rather than a nuisance. Extended to ProgramManager
+        /// (2026-09) for operational parity with Admin, so a compromised PM account now
+        /// carries that same exposure — keep that in mind if PM's threat model changes.
         /// </summary>
-        public const string BackupManagement = Admin;
+        public const string BackupManagement = Admin + "," + ProgramManager;
 
         /// <summary>
         /// May use the partnerships mailing module: the firm directory, templates, campaigns

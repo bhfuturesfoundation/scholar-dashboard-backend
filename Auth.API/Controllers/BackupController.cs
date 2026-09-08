@@ -14,10 +14,9 @@ namespace Auth.API.Controllers
     /// <summary>
     /// Database backups and roster exports.
     ///
-    /// Split by sensitivity rather than by resource: backups are Admin-only because they
-    /// contain every scholar's journal entries and the full user table, while scholar
-    /// exports are open to program managers because they contain only fields those roles
-    /// already see on screen.
+    /// Backups contain every scholar's journal entries and the full user table, so they're
+    /// restricted to <see cref="AppRoles.BackupManagement"/> (Admin and ProgramManager)
+    /// rather than the broader <see cref="AppRoles.Operations"/> group.
     /// </summary>
     [Route("api/operations")]
     [ApiController]

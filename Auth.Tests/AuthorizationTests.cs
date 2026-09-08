@@ -56,6 +56,12 @@ public class AuthorizationTests
         Assert.Equal(new[] { AppRoles.Admin, AppRoles.ProgramManager }, AppRoles.JournalOversight.Split(','));
     }
 
+    [Fact]
+    public void BackupManagement_IsExactlyAdminAndProgramManager()
+    {
+        Assert.Equal(new[] { AppRoles.Admin, AppRoles.ProgramManager }, AppRoles.BackupManagement.Split(','));
+    }
+
     // ── FLS communications ───────────────────────────────────────────────────
 
     [Fact]
