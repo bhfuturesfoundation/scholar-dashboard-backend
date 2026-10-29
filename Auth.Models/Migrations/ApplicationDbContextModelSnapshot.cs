@@ -1947,6 +1947,9 @@ namespace Auth.Models.Migrations
                     b.Property<int>("QuestionId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("SatisfactionRating")
+                        .HasColumnType("text");
+
                     b.Property<string>("ScholarId")
                         .IsRequired()
                         .HasColumnType("text");
