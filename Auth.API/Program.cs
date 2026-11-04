@@ -27,6 +27,8 @@ using Auth.Services.Services.Operations;
 using Auth.Services.Services.Scholars;
 using Auth.Services.Services.Storage;
 using Auth.Services.Settings;
+using Auth.Services.Interfaces.Settings;
+using Auth.Services.Services.Settings;
 using Auth.Services.Services;
 using Auth.Services.Services.Engagement;
 using Auth.Services.Services.FLS;
@@ -46,6 +48,13 @@ Env.TraversePath().Load();
 // anything read through IConfiguration (EMAIL_PROVIDER, FRONTEND_BASE_URL, ...) silently
 // ignores the local .env file.
 builder.Configuration.AddEnvironmentVariables();
+
+// Settings saved from Admin → App settings. Added last so they override the environment;
+// filled from the database once migrations have run.
+var appSettingsProvider = new AppSettingsConfigurationProvider();
+((IConfigurationBuilder)builder.Configuration).Add(appSettingsProvider);
+builder.Services.AddSingleton(appSettingsProvider);
+builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
 
 // === Add services ===
 builder.Services.AddPersistenceServices(builder.Configuration);
@@ -380,6 +389,8 @@ using (var scope = app.Services.CreateScope())
     // migrations on an existing DB. No more EnsureCreated paths.
     await db.Database.MigrateAsync();
     Console.WriteLine("Database is up-to-date.");
+
+    await scope.ServiceProvider.GetRequiredService<IAppSettingsService>().LoadAsync();
 }
 
 

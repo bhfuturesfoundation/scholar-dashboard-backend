@@ -321,8 +321,9 @@ public class AuthController : ControllerBase
             else if (result.RequiresTwoFactor)
                 message = "2FA verification required";
 
-            // Fire-and-forget audit — don't await so it can't slow the login response
-            _ = _auditService.LogAsync("Login.Success", payload: request.Email, ipAddress: ipAddress);
+            // Awaited: un-awaited, it raced the end of the request and the scoped DbContext
+            // was usually disposed first, so most sign-ins never reached the audit log.
+            await _auditService.LogAsync("Login.Success", payload: request.Email, ipAddress: ipAddress);
 
             // Hide refresh token in response payload, keep it only in cookie for security
             result.RefreshToken = null;
@@ -335,14 +336,14 @@ public class AuthController : ControllerBase
             // own message and status via ErrorHandlingMiddleware. This used to be swallowed
             // into a blanket 400 "Login failed.", which hid the reason from the user and from
             // us — a locked-out account and a typo looked identical in the browser.
-            _ = _auditService.LogAsync("Login.Failed", payload: request.Email, ipAddress: ipAddress);
+            await _auditService.LogAsync("Login.Failed", payload: request.Email, ipAddress: ipAddress);
             throw;
         }
         catch (Exception ex)
         {
             // Genuinely unexpected — a 500 is the honest answer, not a 400.
             _logger.LogError(ex, "Unexpected error during login for {Email}", request.Email);
-            _ = _auditService.LogAsync("Login.Error", payload: request.Email, ipAddress: ipAddress);
+            await _auditService.LogAsync("Login.Error", payload: request.Email, ipAddress: ipAddress);
             throw;
         }
     }
@@ -523,7 +524,7 @@ public class AuthController : ControllerBase
             user.MustChangePassword = false;
             await _userService.UpdateUserAsync(user);
 
-            _ = _auditService.LogAsync("Password.Reset", payload: request.Email, ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString());
+            await _auditService.LogAsync("Password.Reset", payload: request.Email, ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString());
 
             return Ok(ApiResponse<bool>.SuccessResponse(true, "Password has been reset successfully."));
         }

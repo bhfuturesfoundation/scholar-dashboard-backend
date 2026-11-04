@@ -8,7 +8,7 @@ Who can do what:
 
 | Role | Can |
 |---|---|
-| **Admin** | Everything: users, account help, roles, scholars, backups, configuration |
+| **Admin** | Everything: users, account help, roles (including FLS admin and partnerships), scholars, backups, App settings |
 | **Program manager** | Scholars (add, promote, mentors), journals, backups, exports. Not user accounts |
 | **Technical team** | Railway, Vercel, environment variables, code. See [DEPLOYMENT.md](DEPLOYMENT.md) |
 
@@ -60,6 +60,13 @@ Every action above is recorded in **Admin → Audit** with who did it and when.
 People are never deleted from the app, only deactivated. That keeps their journal
 history for reports. If someone asks for their data to be erased, contact the technical
 team.
+
+## Changing deadlines, reminders and backups
+
+**Admin → App settings**: the journal deadline day, reminder days, whether late journals
+are refused, the weekly summary email, and the backup schedule. Save, and it applies
+immediately. Every change is recorded in Admin → Audit. *Use default* undoes a change.
+Times are in UTC; the page shows the Sarajevo time under each one.
 
 ## Email isn't being delivered
 

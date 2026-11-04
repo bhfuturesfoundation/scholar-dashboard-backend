@@ -35,6 +35,20 @@ The API **applies pending migrations automatically when it starts** (`Program.cs
   the partnerships account, the bootstrap admin when no admin exists, default
   questions). They never delete or overwrite data.
 
+## Settings staff change in the app
+
+**Admin → App settings** covers the journal deadline day, reminder days, refusing late
+journals, the weekly summary email day and hour, and the backup schedule, format and
+retention. A value saved there **overrides** the environment variable of the same name
+(`JOURNAL_WINDOW_CLOSE_DAY`, `JOURNAL_REMINDER_DAYS`, `JOURNAL_ENFORCE_WINDOW`,
+`DIGEST_DAY`, `DIGEST_HOUR_UTC`, `BACKUP_SCHEDULE_*`, `BACKUP_RETENTION_DAYS`). *Use
+default* removes the override. Saved values live in the `AppSettings` table and apply
+immediately, with no redeploy. On more than one API instance, the others pick them up
+at their next restart.
+
+Everything else (database, sign-in keys, email provider, storage, integrations) stays
+in the variables below on purpose: those are secrets or can take the site down.
+
 ## Environment variables — API (Railway)
 
 ### Required: the API does not work without these
@@ -79,9 +93,9 @@ The API **applies pending migrations automatically when it starts** (`Program.cs
 | `EMAIL_SANDBOX_REDIRECT_TO` | Sends **all** email to one address. Staging only: **if set in production, nobody gets their email.** |
 | `EMAIL_ENABLE_FALLBACK`, `EMAIL_FALLBACK_ORDER` | Try another provider when one fails |
 | `EMAIL_SEND_DELAY_MS`, `EMAIL_MAX_RECIPIENTS_PER_CAMPAIGN` | Bulk email pacing and cap |
-| `BACKUP_SCHEDULE_ENABLED`, `BACKUP_SCHEDULE_DAYS`, `BACKUP_SCHEDULE_HOUR_UTC`, `BACKUP_SCHEDULE_FORMAT`, `BACKUP_RETENTION_DAYS` | Scheduled backups. Default: on, the 1st and 15th, 02:00 UTC, JSON, kept 90 days |
+| `BACKUP_SCHEDULE_ENABLED`, `BACKUP_SCHEDULE_DAYS`, `BACKUP_SCHEDULE_HOUR_UTC`, `BACKUP_SCHEDULE_FORMAT`, `BACKUP_RETENTION_DAYS` | Scheduled backups. Default: on, the 1st and 15th, 02:00 UTC, JSON, kept 90 days. Prefer changing them in **Admin → App settings** |
 | `NEWS_SCRAPE_ENABLED`, `NEWS_SCRAPE_HOUR_UTC` | Daily copy of the foundation news for the home page |
-| `NOTIFICATIONS_SCHEDULER_ENABLED`, `JOURNAL_REMINDER_DAYS`, `JOURNAL_WINDOW_CLOSE_DAY`, `JOURNAL_TIMEZONE`, `JOURNAL_ENFORCE_WINDOW`, `DIGEST_DAY`, `DIGEST_HOUR_UTC` | Journal reminders and weekly digest. See [NOTIFICATIONS.md](NOTIFICATIONS.md) |
+| `NOTIFICATIONS_SCHEDULER_ENABLED`, `JOURNAL_REMINDER_DAYS` (also in App settings), `JOURNAL_WINDOW_CLOSE_DAY`, `JOURNAL_TIMEZONE`, `JOURNAL_ENFORCE_WINDOW`, `DIGEST_DAY`, `DIGEST_HOUR_UTC` | Journal reminders and weekly digest. See [NOTIFICATIONS.md](NOTIFICATIONS.md) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Browser push notifications. Changing the keys drops every existing subscription. |
 | `GOOGLE_CREDENTIALS`, `SPREADSHEET_ID` | Volunteering team hours sheet. Note the name: `GOOGLE_CREDENTIALS`, not `GOOGLE_SHEETS_CREDENTIALS`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | "Sign in with Google/GitHub" for existing accounts |
