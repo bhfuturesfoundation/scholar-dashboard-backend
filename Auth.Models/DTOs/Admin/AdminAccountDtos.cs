@@ -46,4 +46,17 @@ namespace Auth.Models.DTOs.Admin
     {
         public string TemporaryPassword { get; set; } = string.Empty;
     }
+
+    public class CreatedAccountDto
+    {
+        public AdminAccountDetailDto Account { get; set; } = new();
+
+        /// <summary>
+        /// Shown once, as a fallback for when the welcome email does not arrive. They are
+        /// asked to replace it at first sign-in either way.
+        /// </summary>
+        public string TemporaryPassword { get; set; } = string.Empty;
+
+        public bool WelcomeEmailSent { get; set; }
+    }
 }

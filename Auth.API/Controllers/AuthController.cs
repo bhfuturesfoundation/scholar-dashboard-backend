@@ -24,6 +24,7 @@ public class AuthController : ControllerBase
     private readonly IAccountService _accountService;
     private readonly IAvatarService _avatarService;
     private readonly IPasswordResetService _passwordReset;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -35,6 +36,7 @@ public class AuthController : ControllerBase
         IAccountService accountService,
         IAvatarService avatarService,
         IPasswordResetService passwordReset,
+        IConfiguration configuration,
         ILogger<AuthController> logger)
     {
         _authService = authService;
@@ -45,6 +47,7 @@ public class AuthController : ControllerBase
         _accountService = accountService;
         _avatarService = avatarService;
         _passwordReset = passwordReset;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -202,6 +205,14 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<ActionResult<ApiResponse<RegisterResponse>>> Register([FromBody] RegisterRequest request)
     {
+        // Anyone reaching this endpoint used to get a scholar account. Accounts are created
+        // by staff (intake import or Manage Users), so self-registration is off unless a
+        // deployment deliberately turns it back on.
+        if (!string.Equals(_configuration["ALLOW_PUBLIC_REGISTRATION"], "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotFound();
+        }
+
         var result = await _authService.RegisterAsync(request);
 
         var confirmationToken = await _userService.GenerateEmailConfirmationTokenAsync(result.User.Id);

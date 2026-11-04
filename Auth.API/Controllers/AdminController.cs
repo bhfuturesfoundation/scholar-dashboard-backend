@@ -95,6 +95,12 @@ namespace Auth.API.Controllers
 
         // ── Account help desk ───────────────────────────────────────────────────
 
+        [HttpPost("users")]
+        public async Task<ActionResult<ApiResponse<CreatedAccountDto>>> CreateUser(
+            [FromBody] AdminCreateUserRequest request, CancellationToken ct) =>
+            Ok(ApiResponse<CreatedAccountDto>.SuccessResponse(
+                await _adminAccountService.CreateAccountAsync(GetCallerId()!, request, ct), "Account created"));
+
         [HttpGet("users/{userId}/account")]
         public async Task<ActionResult<ApiResponse<AdminAccountDetailDto>>> GetAccount(string userId, CancellationToken ct) =>
             Ok(ApiResponse<AdminAccountDetailDto>.SuccessResponse(

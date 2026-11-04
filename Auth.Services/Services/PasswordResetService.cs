@@ -24,17 +24,19 @@ namespace Auth.Services.Services
             _configuration = configuration;
         }
 
-        public async Task SendResetLinkAsync(User user)
-        {
-            if (string.IsNullOrWhiteSpace(user.Email))
-            {
-                throw new InvalidOperationException("This account has no email address to send a reset link to.");
-            }
+        public async Task SendResetLinkAsync(User user) =>
+            await _resendService.SendEmailAsync(EmailOf(user), await BuildLinkAsync(user));
 
-            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+        public async Task SendWelcomeLinkAsync(User user) =>
+            await _resendService.SendWelcomeEmailAsync(EmailOf(user), user.FirstName, await BuildLinkAsync(user));
 
-            await _resendService.SendEmailAsync(user.Email, BuildResetLink(user.Email, token));
-        }
+        private async Task<string> BuildLinkAsync(User user) =>
+            BuildResetLink(EmailOf(user), await _userManager.GeneratePasswordResetTokenAsync(user));
+
+        private static string EmailOf(User user) =>
+            string.IsNullOrWhiteSpace(user.Email)
+                ? throw new InvalidOperationException("This account has no email address to send a link to.")
+                : user.Email;
 
         /// <summary>
         /// Same query-string shape the reset page has always read (email + token), so links

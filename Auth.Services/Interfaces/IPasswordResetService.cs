@@ -17,5 +17,8 @@ namespace Auth.Services.Interfaces
         /// that was not delivered to the provider.
         /// </summary>
         Task SendResetLinkAsync(User user);
+
+        /// <summary>Same link, worded as a welcome, for an account staff just created.</summary>
+        Task SendWelcomeLinkAsync(User user);
     }
 }

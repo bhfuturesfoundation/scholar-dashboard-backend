@@ -10,6 +10,14 @@ namespace Auth.Services.Interfaces
     /// </summary>
     public interface IAdminAccountService
     {
+        /// <summary>
+        /// Creates one account with a generated password and, by default, emails a link to
+        /// choose their own. A failed email does not undo the account: the admin still gets
+        /// the temporary password to hand over another way.
+        /// </summary>
+        Task<CreatedAccountDto> CreateAccountAsync(
+            string adminId, AdminCreateUserRequest request, CancellationToken cancellationToken = default);
+
         Task<AdminAccountDetailDto> GetAccountAsync(string userId, CancellationToken cancellationToken = default);
 
         Task<AdminAccountDetailDto> UpdateAccountAsync(

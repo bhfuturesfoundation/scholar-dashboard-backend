@@ -415,6 +415,7 @@ using (var scope = app.Services.CreateScope())
 
     await RunSeederAsync(nameof(SeedData.SeedRolesAsync), SeedData.SeedRolesAsync);
     await RunSeederAsync(nameof(SeedData.SeedStaffAccountsAsync), SeedData.SeedStaffAccountsAsync);
+    await RunSeederAsync(nameof(SeedData.SeedBootstrapAdminAsync), SeedData.SeedBootstrapAdminAsync);
     await RunSeederAsync(nameof(SeedData.SeedQuestionsAsync), SeedData.SeedQuestionsAsync);
     // SeedUsersAsync and SeedMentorsAsync are deliberately NOT run.
     //

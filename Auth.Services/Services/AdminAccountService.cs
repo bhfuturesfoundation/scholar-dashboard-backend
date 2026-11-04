@@ -3,6 +3,7 @@ using Auth.Models.Constants;
 using Auth.Models.Data;
 using Auth.Models.DTOs.Admin;
 using Auth.Models.Entities;
+using Auth.Models.Enums.Scholars;
 using Auth.Models.Exceptions;
 using Auth.Models.Request;
 using Auth.Services.Interfaces;
@@ -41,6 +42,89 @@ namespace Auth.Services.Services
             _passwordReset = passwordReset;
             _auditService = auditService;
             _logger = logger;
+        }
+
+        public async Task<CreatedAccountDto> CreateAccountAsync(
+            string adminId, AdminCreateUserRequest request, CancellationToken cancellationToken = default)
+        {
+            var (firstName, lastName, email) = ValidateIdentity(request.FirstName, request.LastName, request.Email);
+
+            var roles = request.Roles.Distinct().ToList();
+            if (roles.Count == 0 || roles.Any(r => !AppRoles.All.Contains(r)))
+            {
+                throw new ValidationException("Choose at least one valid role.");
+            }
+
+            if (await _userManager.FindByEmailAsync(email) is not null)
+            {
+                throw new ConflictException("Another account already uses this email address.");
+            }
+
+            var user = new User
+            {
+                UserName = email,
+                Email = email,
+                FirstName = firstName,
+                LastName = lastName,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                IsActive = true,
+                EmailConfirmed = false,
+                MustChangePassword = true
+            };
+
+            if (roles.Contains(AppRoles.User))
+            {
+                var status = request.ScholarStatus ?? ScholarStatus.Junior;
+
+                user.ScholarStatus = status;
+                user.Title = status.ToString();
+                user.GenerationId = await ResolveGenerationAsync(request.GenerationId, cancellationToken);
+            }
+
+            var password = TemporaryPassword.Generate();
+            EnsureSucceeded(await _userManager.CreateAsync(user, password));
+            EnsureSucceeded(await _userManager.AddToRolesAsync(user, roles));
+
+            await _auditService.LogAsync(
+                "Admin.AccountCreated", adminId, $"Target={user.Id} Email={email} Roles=[{string.Join(",", roles)}]");
+
+            var welcomeSent = false;
+            if (request.SendWelcomeEmail)
+            {
+                try
+                {
+                    await _passwordReset.SendWelcomeLinkAsync(user);
+                    welcomeSent = true;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // Logged and carried on: the account exists, and the response hands the
+                    // admin the temporary password to pass on instead.
+                    _logger.LogWarning(ex, "Welcome email for new account {UserId} failed.", user.Id);
+                }
+            }
+
+            return new CreatedAccountDto
+            {
+                Account = await GetAccountAsync(user.Id, cancellationToken),
+                TemporaryPassword = password,
+                WelcomeEmailSent = welcomeSent
+            };
+        }
+
+        private async Task<int?> ResolveGenerationAsync(int? requested, CancellationToken cancellationToken)
+        {
+            if (requested is null)
+            {
+                return await _context.ScholarGenerations
+                    .Where(g => g.IsCurrent)
+                    .Select(g => (int?)g.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+
+            var exists = await _context.ScholarGenerations.AnyAsync(g => g.Id == requested, cancellationToken);
+            return exists ? requested : throw new ValidationException("That generation does not exist.");
         }
 
         public async Task<AdminAccountDetailDto> GetAccountAsync(
@@ -97,19 +181,7 @@ namespace Auth.Services.Services
         {
             var user = await FindAsync(userId);
 
-            var firstName = Clean(request.FirstName);
-            var lastName = Clean(request.LastName);
-            var email = request.Email?.Trim();
-
-            if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
-            {
-                throw new ValidationException("Both a first and last name are required.");
-            }
-
-            if (string.IsNullOrWhiteSpace(email) || !EmailFormat.IsValid(email))
-            {
-                throw new ValidationException("Enter a valid email address.");
-            }
+            var (firstName, lastName, email) = ValidateIdentity(request.FirstName, request.LastName, request.Email);
 
             var changes = new List<string>();
 
@@ -220,6 +292,26 @@ namespace Auth.Services.Services
 
         private async Task<User> FindAsync(string userId) =>
             await _userManager.FindByIdAsync(userId) ?? throw new NotFoundException("User", userId);
+
+        private static (string FirstName, string LastName, string Email) ValidateIdentity(
+            string? firstName, string? lastName, string? email)
+        {
+            var first = Clean(firstName);
+            var last = Clean(lastName);
+            var address = email?.Trim();
+
+            if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(last))
+            {
+                throw new ValidationException("Both a first and last name are required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(address) || !EmailFormat.IsValid(address))
+            {
+                throw new ValidationException("Enter a valid email address.");
+            }
+
+            return (first, last, address);
+        }
 
         private static void EnsureSucceeded(IdentityResult result)
         {

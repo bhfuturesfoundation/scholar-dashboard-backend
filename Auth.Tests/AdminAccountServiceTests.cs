@@ -1,5 +1,7 @@
 using Auth.Models.Data;
 using Auth.Models.Entities;
+using Auth.Models.Entities.Scholars;
+using Auth.Models.Enums.Scholars;
 using Auth.Models.Exceptions;
 using Auth.Models.Request;
 using Auth.Services.Interfaces;
@@ -223,5 +225,90 @@ public class AdminAccountServiceTests : IDisposable
         Assert.Equal(
             "https://portal.example.org/reset-password?email=amina%2Btest%40bhff.org&token=a%2Bb%2Fc%3D",
             link);
+    }
+
+    private void AllowCreate(Action<User>? onCreate = null)
+    {
+        _userManager.Setup(m => m.CreateAsync(It.IsAny<User>(), It.IsAny<string>()))
+            .Callback<User, string>((user, _) =>
+            {
+                user.Id = "new-user";
+                _context.Users.Add(user);
+                _context.SaveChanges();
+                onCreate?.Invoke(user);
+            })
+            .ReturnsAsync(IdentityResult.Success);
+        _userManager.Setup(m => m.AddToRolesAsync(It.IsAny<User>(), It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(IdentityResult.Success);
+    }
+
+    private static AdminCreateUserRequest NewScholar() => new()
+    {
+        FirstName = "Lejla",
+        LastName = "Test",
+        Email = "lejla@bhff.org",
+        Roles = new List<string> { "User" }
+    };
+
+    [Fact]
+    public async Task CreateAccount_ScholarDefaultsToJuniorInTheCurrentGeneration()
+    {
+        _context.ScholarGenerations.AddRange(
+            new ScholarGeneration { Id = 1, Name = "2024", IsCurrent = false },
+            new ScholarGeneration { Id = 2, Name = "2025", IsCurrent = true });
+        await _context.SaveChangesAsync();
+
+        User? created = null;
+        AllowCreate(user => created = user);
+
+        var result = await Service().CreateAccountAsync(AdminId, NewScholar());
+
+        Assert.NotNull(created);
+        Assert.Equal(ScholarStatus.Junior, created!.ScholarStatus);
+        Assert.Equal(2, created.GenerationId);
+        Assert.True(created.MustChangePassword);
+        Assert.True(result.WelcomeEmailSent);
+        Assert.False(string.IsNullOrEmpty(result.TemporaryPassword));
+    }
+
+    [Fact]
+    public async Task CreateAccount_WelcomeEmailFailureStillReturnsThePassword()
+    {
+        AllowCreate();
+        _passwordReset.Setup(p => p.SendWelcomeLinkAsync(It.IsAny<User>()))
+            .ThrowsAsync(new InvalidOperationException("provider down"));
+
+        var result = await Service().CreateAccountAsync(AdminId, NewScholar());
+
+        Assert.False(result.WelcomeEmailSent);
+        Assert.False(string.IsNullOrEmpty(result.TemporaryPassword));
+    }
+
+    [Theory]
+    [InlineData]
+    [InlineData("NotARole")]
+    public async Task CreateAccount_RejectsMissingOrUnknownRoles(params string[] roles)
+    {
+        var request = NewScholar();
+        request.Roles = roles.ToList();
+
+        await Assert.ThrowsAsync<ValidationException>(() => Service().CreateAccountAsync(AdminId, request));
+    }
+
+    [Fact]
+    public async Task CreateAccount_RefusesAnEmailAlreadyInUse()
+    {
+        _userManager.Setup(m => m.FindByEmailAsync("lejla@bhff.org")).ReturnsAsync(new User { Id = "x" });
+
+        await Assert.ThrowsAsync<ConflictException>(() => Service().CreateAccountAsync(AdminId, NewScholar()));
+    }
+
+    [Fact]
+    public async Task CreateAccount_RejectsAGenerationThatDoesNotExist()
+    {
+        var request = NewScholar();
+        request.GenerationId = 99;
+
+        await Assert.ThrowsAsync<ValidationException>(() => Service().CreateAccountAsync(AdminId, request));
     }
 }
