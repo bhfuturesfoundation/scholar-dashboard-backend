@@ -90,6 +90,9 @@ merging one.
 
 ## More docs
 
+- [AGENTS.md](AGENTS.md): coding rules for developers and AI agents (start here)
+- [CONTRIBUTING.md](CONTRIBUTING.md): branches, commits, pull requests, releases
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the system fits together
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): hosting, every variable, release and rollback
 - [docs/SUPPORT_RUNBOOK.md](docs/SUPPORT_RUNBOOK.md): sign-in problems, people, email, backups, outages
 - [docs/EMAIL_PROVIDERS.md](docs/EMAIL_PROVIDERS.md): setting up each email provider
