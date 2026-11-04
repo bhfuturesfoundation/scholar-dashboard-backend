@@ -181,14 +181,30 @@ namespace Auth.Services.Services
         public async Task<int> SignOutEverywhereAsync(
             string userId, string? ipAddress = null, CancellationToken cancellationToken = default)
         {
+            var live = await RevokeSessionsAsync(
+                userId, "Signed out of all devices by the account holder", ipAddress, cancellationToken);
+
+            await _auditService.LogAsync(
+                "Account.SignedOutEverywhere",
+                userId,
+                $"Revoked {live} refresh token(s).");
+
+            _logger.LogInformation(
+                "User {UserId} signed out of all devices ({Count} session(s)).", userId, live);
+
+            return live;
+        }
+
+        public async Task<int> RevokeSessionsAsync(
+            string userId, string reason, string? ipAddress = null, CancellationToken cancellationToken = default)
+        {
             var live = await _context.RefreshTokens
                 .CountAsync(t => t.UserId == userId
                               && t.RevokedAt == null
                               && t.ExpiryTime > DateTime.UtcNow,
                     cancellationToken);
 
-            await _tokenService.RevokeAllRefreshTokensAsync(
-                userId, ipAddress, "Signed out of all devices by the account holder");
+            await _tokenService.RevokeAllRefreshTokensAsync(userId, ipAddress, reason);
 
             // Revoking refresh tokens only stops renewal. Bumping the token version is what
             // kills the access tokens already out there: every one of them carries the
@@ -203,14 +219,6 @@ namespace Auth.Services.Services
             // Evict immediately so the very next request re-reads it rather than waiting for
             // the cache entry to lapse.
             _tokenVersions.Invalidate(userId);
-
-            await _auditService.LogAsync(
-                "Account.SignedOutEverywhere",
-                userId,
-                $"Revoked {live} refresh token(s).");
-
-            _logger.LogInformation(
-                "User {UserId} signed out of all devices ({Count} session(s)).", userId, live);
 
             return live;
         }

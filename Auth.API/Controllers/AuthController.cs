@@ -17,34 +17,34 @@ using System.Text;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
-    private readonly IResendService _resendService;
     private readonly IUserService _userService;
     private readonly ITwoFactorService _twoFactorService;
     private readonly IEmailService _emailService;
     private readonly IAuditService _auditService;
     private readonly IAccountService _accountService;
     private readonly IAvatarService _avatarService;
+    private readonly IPasswordResetService _passwordReset;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         IAuthService authService,
-        IResendService resendService,
         IUserService userService,
         ITwoFactorService twoFactorService,
         IEmailService emailService,
         IAuditService auditService,
         IAccountService accountService,
         IAvatarService avatarService,
+        IPasswordResetService passwordReset,
         ILogger<AuthController> logger)
     {
         _authService = authService;
-        _resendService = resendService;
         _userService = userService;
         _twoFactorService = twoFactorService;
         _emailService = emailService;
         _auditService = auditService;
         _accountService = accountService;
         _avatarService = avatarService;
+        _passwordReset = passwordReset;
         _logger = logger;
     }
 
@@ -468,38 +468,27 @@ public class AuthController : ControllerBase
     [HttpPost("forgot-password")]
     public async Task<ActionResult<ApiResponse<bool>>> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
+        const string sent = "If this email exists, a reset link has been sent.";
+
+        var user = await _userService.GetByEmailAsync(request.Email);
+        if (user == null || string.IsNullOrWhiteSpace(user.Email))
+        {
+            _logger.LogInformation("Forgot password requested for an unknown or email-less account: {Email}", request.Email);
+            return Ok(ApiResponse<bool>.SuccessResponse(true, sent));
+        }
+
         try
         {
-            var user = await _userService.GetByEmailAsync(request.Email);
-            if (user == null)
-            {
-                _logger.LogInformation("Forgot password requested for non-existent email: {Email}", request.Email);
-                return Ok(ApiResponse<bool>.SuccessResponse(true, "If this email exists, a reset link has been sent."));
-            }
-
-            if (string.IsNullOrWhiteSpace(user.Email))
-            {
-                _logger.LogWarning("User exists but email is empty: {UserId}", user.Id);
-                return BadRequest(ApiResponse<bool>.ErrorResponse("Cannot send email: user email is empty."));
-            }
-
-            var token = await _userService.GeneratePasswordResetTokenAsync(user);
-            var tokenEncoded = System.Web.HttpUtility.UrlEncode(token);
-
-            var resetLink = $"https://scholar-dashboard-frontend.vercel.app/reset-password?email={user.Email}&token={tokenEncoded}";
-
-            // Send using existing EmailJS service with link injected
-            await _resendService.SendEmailAsync(
-                user.Email,
-                resetLink
-            );
-
-            return Ok(ApiResponse<bool>.SuccessResponse(true, "If this email exists, a reset link has been sent."));
+            await _passwordReset.SendResetLinkAsync(user);
+            return Ok(ApiResponse<bool>.SuccessResponse(true, sent));
         }
-        catch (Exception ex)
+        catch (InvalidOperationException ex)
         {
+            // The provider's own error stays in the log: it can name the vendor and the
+            // configuration, which is no business of an anonymous caller.
             _logger.LogWarning(ex, "Failed to send password reset email for {Email}", request.Email);
-            return BadRequest(ApiResponse<bool>.ErrorResponse("Failed to send password reset email. " + ex.Message));
+            return BadRequest(ApiResponse<bool>.ErrorResponse(
+                "We could not send the email right now. Please contact your programme administrator."));
         }
     }
 

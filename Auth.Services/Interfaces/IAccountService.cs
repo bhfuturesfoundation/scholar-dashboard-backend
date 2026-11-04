@@ -35,6 +35,14 @@ namespace Auth.Services.Interfaces
             string userId, string? ipAddress = null, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Ends every session for the account: revokes refresh tokens and bumps the token
+        /// version so issued access tokens stop working immediately. Does not audit — the
+        /// caller knows who asked and why, and records that itself.
+        /// </summary>
+        Task<int> RevokeSessionsAsync(
+            string userId, string reason, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// A copy of everything this account holds — profile, journal answers, achievements,
         /// kudos given and received.
         ///

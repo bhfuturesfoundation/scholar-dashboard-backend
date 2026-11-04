@@ -1,3 +1,4 @@
+using Auth.Models.DTOs.Admin;
 using Auth.Models.Request;
 using Auth.Models.Response;
 using Auth.Services.Interfaces;
@@ -13,15 +14,18 @@ namespace Auth.API.Controllers
     public class AdminController : ControllerBase
     {
         private readonly IAdminUserService _adminUserService;
+        private readonly IAdminAccountService _adminAccountService;
         private readonly IAuditService _auditService;
         private readonly ILogger<AdminController> _logger;
 
         public AdminController(
             IAdminUserService adminUserService,
+            IAdminAccountService adminAccountService,
             IAuditService auditService,
             ILogger<AdminController> logger)
         {
             _adminUserService = adminUserService;
+            _adminAccountService = adminAccountService;
             _auditService = auditService;
             _logger = logger;
         }
@@ -88,5 +92,55 @@ namespace Auth.API.Controllers
 
             return Ok(ApiResponse<bool>.SuccessResponse(true, $"Active status updated for {request.UserIds.Count} users"));
         }
+
+        // ── Account help desk ───────────────────────────────────────────────────
+
+        [HttpGet("users/{userId}/account")]
+        public async Task<ActionResult<ApiResponse<AdminAccountDetailDto>>> GetAccount(string userId, CancellationToken ct) =>
+            Ok(ApiResponse<AdminAccountDetailDto>.SuccessResponse(
+                await _adminAccountService.GetAccountAsync(userId, ct), "Account retrieved"));
+
+        [HttpPut("users/{userId}/account")]
+        public async Task<ActionResult<ApiResponse<AdminAccountDetailDto>>> UpdateAccount(
+            string userId, [FromBody] AdminUpdateUserRequest request, CancellationToken ct) =>
+            Ok(ApiResponse<AdminAccountDetailDto>.SuccessResponse(
+                await _adminAccountService.UpdateAccountAsync(GetCallerId()!, userId, request, ct), "Account updated"));
+
+        [HttpPost("users/{userId}/unlock")]
+        public async Task<ActionResult<ApiResponse<bool>>> Unlock(string userId, CancellationToken ct)
+        {
+            await _adminAccountService.UnlockAsync(GetCallerId()!, userId, ct);
+            return Ok(ApiResponse<bool>.SuccessResponse(true, "Account unlocked"));
+        }
+
+        [HttpPost("users/{userId}/password-reset-email")]
+        public async Task<ActionResult<ApiResponse<bool>>> SendPasswordResetEmail(string userId, CancellationToken ct)
+        {
+            try
+            {
+                await _adminAccountService.SendPasswordResetEmailAsync(GetCallerId()!, userId, ct);
+                return Ok(ApiResponse<bool>.SuccessResponse(true, "Password reset email sent"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                // The provider refused or is not configured. 502 rather than 500: our side
+                // worked, the mail service did not — and the admin has a fallback to reach for.
+                _logger.LogWarning(ex, "Admin password reset email for {UserId} failed.", userId);
+                return StatusCode(StatusCodes.Status502BadGateway, ApiResponse<bool>.ErrorResponse(
+                    "The email could not be sent. Set a temporary password instead."));
+            }
+        }
+
+        [HttpPost("users/{userId}/temporary-password")]
+        public async Task<ActionResult<ApiResponse<TemporaryPasswordDto>>> SetTemporaryPassword(string userId, CancellationToken ct) =>
+            Ok(ApiResponse<TemporaryPasswordDto>.SuccessResponse(
+                await _adminAccountService.SetTemporaryPasswordAsync(GetCallerId()!, userId, GetIp(), ct),
+                "Temporary password set"));
+
+        [HttpPost("users/{userId}/sign-out-everywhere")]
+        public async Task<ActionResult<ApiResponse<int>>> SignOutEverywhere(string userId, CancellationToken ct) =>
+            Ok(ApiResponse<int>.SuccessResponse(
+                await _adminAccountService.SignOutEverywhereAsync(GetCallerId()!, userId, GetIp(), ct),
+                "Signed out of all devices"));
     }
 }

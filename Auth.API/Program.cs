@@ -42,6 +42,11 @@ var builder = WebApplication.CreateBuilder(args);
 // ? Load local .env if exists (only for dev)
 Env.TraversePath().Load();
 
+// The builder snapshotted environment variables before .env was loaded, so without this
+// anything read through IConfiguration (EMAIL_PROVIDER, FRONTEND_BASE_URL, ...) silently
+// ignores the local .env file.
+builder.Configuration.AddEnvironmentVariables();
+
 // === Add services ===
 builder.Services.AddPersistenceServices(builder.Configuration);
 builder.Services.AddIdentityServices(builder.Configuration);
@@ -87,6 +92,8 @@ builder.Services.AddScoped<ISuggestionService, SuggestionService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IManagerService, ManagerService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
+builder.Services.AddScoped<IAdminAccountService, AdminAccountService>();
+builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
 builder.Services.AddScoped<IAuthService, AuthService>();

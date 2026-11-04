@@ -42,6 +42,7 @@ public class AdminUserService : IAdminUserService
                 Email = user.Email ?? string.Empty,
                 Roles = roles.ToList(),
                 IsActive = user.IsActive,
+                IsLockedOut = user.LockoutEnd > DateTimeOffset.UtcNow,
                 CreatedAt = user.CreatedAt
             });
         }
