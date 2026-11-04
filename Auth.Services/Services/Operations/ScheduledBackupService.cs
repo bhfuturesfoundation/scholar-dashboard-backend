@@ -84,12 +84,8 @@ namespace Auth.Services.Services.Operations
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            if (!Enabled)
-            {
-                _logger.LogInformation("Scheduled backups are disabled (BACKUP_SCHEDULE_ENABLED=false).");
-                return;
-            }
-
+            // Checked on every tick rather than once here, so switching backups on or off
+            // in App settings takes effect without a restart.
             _logger.LogInformation(
                 "Scheduled backups active: days {Days} at {Hour:00}:00 UTC, format {Format}, retention {Retention} days.",
                 string.Join(" and ", ScheduledDays), ScheduledHourUtc, Format, RetentionDays);
@@ -122,6 +118,8 @@ namespace Auth.Services.Services.Operations
 
         private async Task TickAsync(CancellationToken cancellationToken)
         {
+            if (!Enabled) return;
+
             var now = DateTime.UtcNow;
 
             if (!ScheduledDays.Contains(now.Day)) return;

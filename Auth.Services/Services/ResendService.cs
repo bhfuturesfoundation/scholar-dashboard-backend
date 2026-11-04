@@ -40,6 +40,34 @@ namespace Auth.Services.Services
             BH Futures Foundation
             """;
 
+        private const string WelcomeSubject = "Dobro došli / Welcome to the BH Futures Foundation dashboard";
+
+        // Bosnian first: almost every recipient reads it first, and nobody has picked a
+        // language yet when this arrives.
+        private const string WelcomeBody = """
+            Zdravo {{firstName}},
+
+            Napravljen vam je račun na platformi BH Futures Foundation.
+            Otvorite ovaj link i izaberite svoju lozinku:
+            {{link}}
+
+            Link važi 24 sata. Ako istekne, na stranici za prijavu kliknite "Zaboravljena lozinka?"
+            i upišite ovu email adresu.
+
+            ---
+
+            Hi {{firstName}},
+
+            An account has been created for you on the BH Futures Foundation dashboard.
+            Open this link to choose your password:
+            {{link}}
+
+            The link works for 24 hours. If it expires, click "Forgot password?" on the sign-in
+            page and enter this email address.
+
+            BH Futures Foundation
+            """;
+
         public ResendEmailService(
             IEmailDispatcher dispatcher,
             IEmailTemplateRenderer renderer,
@@ -50,12 +78,21 @@ namespace Auth.Services.Services
             _logger = logger;
         }
 
-        public async Task SendEmailAsync(string to, string resetLink)
-        {
-            var rendered = _renderer.Render(
-                ResetSubject,
-                ResetBody,
+        public Task SendWelcomeEmailAsync(string to, string? firstName, string setPasswordLink) =>
+            SendAsync(to, WelcomeSubject, WelcomeBody, "welcome", new Dictionary<string, string?>
+            {
+                ["firstName"] = string.IsNullOrWhiteSpace(firstName) ? "" : firstName,
+                ["link"] = setPasswordLink
+            });
+
+        public Task SendEmailAsync(string to, string resetLink) =>
+            SendAsync(to, ResetSubject, ResetBody, "password-reset",
                 new Dictionary<string, string?> { ["resetLink"] = resetLink });
+
+        private async Task SendAsync(
+            string to, string subject, string body, string tag, Dictionary<string, string?> variables)
+        {
+            var rendered = _renderer.Render(subject, body, variables);
 
             var result = await _dispatcher.SendAsync(new OutboundEmail
             {
@@ -63,18 +100,18 @@ namespace Auth.Services.Services
                 Subject = rendered.Subject,
                 HtmlBody = rendered.HtmlBody,
                 TextBody = rendered.TextBody,
-                Tag = "password-reset"
+                Tag = tag
             });
 
             if (!result.Success)
             {
                 _logger.LogError(
-                    "Password reset email to {Email} failed via {Provider}: {Error}",
-                    to, result.Provider, result.Error);
+                    "{Tag} email to {Email} failed via {Provider}: {Error}",
+                    tag, to, result.Provider, result.Error);
 
                 // Surface as an exception so AuthController's existing catch reports the
                 // failure to the caller rather than claiming the email was sent.
-                throw new InvalidOperationException($"Failed to send password reset email: {result.Error}");
+                throw new InvalidOperationException($"Failed to send {tag} email: {result.Error}");
             }
         }
     }

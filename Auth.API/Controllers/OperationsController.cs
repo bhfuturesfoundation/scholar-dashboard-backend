@@ -1,9 +1,13 @@
 using Auth.Models.Constants;
+using Auth.Models.DTOs.Email;
 using Auth.Models.DTOs.Operations;
 using Auth.Models.Response;
+using Auth.Services.Interfaces;
+using Auth.Services.Interfaces.Email;
 using Auth.Services.Interfaces.Operations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace Auth.API.Controllers
 {
@@ -21,16 +25,56 @@ namespace Auth.API.Controllers
     {
         private readonly IOperationsService _operationsService;
         private readonly IAuditQueryService _audit;
+        private readonly IEmailDispatcher _emailDispatcher;
+        private readonly IAuditService _auditService;
         private readonly ILogger<OperationsController> _logger;
 
         public OperationsController(
             IOperationsService operationsService,
             IAuditQueryService audit,
+            IEmailDispatcher emailDispatcher,
+            IAuditService auditService,
             ILogger<OperationsController> logger)
         {
             _operationsService = operationsService;
             _audit = audit;
+            _emailDispatcher = emailDispatcher;
+            _auditService = auditService;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Sends a test email to the caller's own address.
+        ///
+        /// "Is email working?" otherwise has no answer short of asking a scholar to try
+        /// forgot-password and report back. Only ever to the caller, so this cannot be used
+        /// to send mail to anyone else. The provider's own error is returned on purpose: the
+        /// only people who can call this are the ones who have to fix it.
+        /// </summary>
+        [HttpPost("email-test")]
+        public async Task<ActionResult<ApiResponse<EmailSendResult>>> SendTestEmail(CancellationToken cancellationToken)
+        {
+            var to = User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
+            if (string.IsNullOrWhiteSpace(to))
+            {
+                return BadRequest(ApiResponse<EmailSendResult>.ErrorResponse("Your account has no email address."));
+            }
+
+            var result = await _emailDispatcher.SendAsync(new OutboundEmail
+            {
+                ToEmail = to,
+                Subject = "Test email from the Scholar Dashboard",
+                TextBody = "If you can read this, the dashboard can send email. / Ako ovo čitate, platforma može slati email.",
+                HtmlBody = "<p>If you can read this, the dashboard can send email.</p><p>Ako ovo čitate, platforma može slati email.</p>",
+                Tag = "email-test"
+            }, cancellationToken: cancellationToken);
+
+            await _auditService.LogAsync(
+                "Operations.EmailTest",
+                User.FindFirstValue(ClaimTypes.NameIdentifier),
+                $"Provider={result.Provider} Success={result.Success}");
+
+            return Ok(ApiResponse<EmailSendResult>.SuccessResponse(result, result.Success ? "Sent" : "Not sent"));
         }
 
         /// <summary>Deploy health: database, migrations, integrations, uptime.</summary>

@@ -66,6 +66,13 @@ namespace Auth.Services.Services.Operations
             new("JWT_AUDIENCE", Authentication, EnvVarImportance.Required,
                 "Expected token audience.", "Tokens are rejected as invalid."),
 
+            new("FRONTEND_BASE_URL", Authentication, EnvVarImportance.Recommended,
+                "Public address of the web app, e.g. https://scholar-dashboard-frontend.vercel.app. Used in password-reset and welcome links and after Google/GitHub sign-in.",
+                "Links fall back to the original Vercel address, so they break if the site moves."),
+            new("ALLOW_PUBLIC_REGISTRATION", Authentication, EnvVarImportance.Optional,
+                "Set to true only if anyone on the internet should be able to create their own scholar account.",
+                "Off by default: accounts are created by staff through intake or Manage Users."),
+
             // ── Email ─────────────────────────────────────────────────────────
             new("EMAIL_PROVIDER", Email, EnvVarImportance.Recommended,
                 "Which provider sends by default: smtp, gmass, mailchimp, resend, emailjs or log.",
@@ -114,8 +121,12 @@ namespace Auth.Services.Services.Operations
             new("DROPBOX_REFRESH_TOKEN", Integrations, EnvVarImportance.Recommended,
                 "Permanent Dropbox refresh token. Access tokens are minted from it on demand.",
                 "Password exports and backup uploads are skipped."),
-            new("GOOGLE_SHEETS_CREDENTIALS", Integrations, EnvVarImportance.Optional,
-                "Service-account JSON for the volunteering leaderboard."),
+            new("GOOGLE_CREDENTIALS", Integrations, EnvVarImportance.Optional,
+                "Service-account JSON for the volunteering team's hours sheet.",
+                "The volunteering pages cannot read the sheet."),
+            new("FLS_UPLOAD_PATH", Integrations, EnvVarImportance.Recommended,
+                "Folder for FLS speaker uploads and documents. Point it at a persistent volume.",
+                "Files are written inside the container and are lost on every redeploy."),
             new("SPREADSHEET_ID", Integrations, EnvVarImportance.Optional,
                 "Google Sheet backing the volunteering leaderboard."),
 
@@ -131,6 +142,12 @@ namespace Auth.Services.Services.Operations
                 "Defaults to Production."),
 
             // ── Seeding ───────────────────────────────────────────────────────
+            new("BOOTSTRAP_ADMIN_EMAIL", Seeding, EnvVarImportance.Optional,
+                "Creates the first administrator on a deployment that has none. Ignored once any Admin exists.",
+                "Nothing, if an Admin already exists. Remove after the first sign-in."),
+            new("BOOTSTRAP_ADMIN_PASSWORD", Seeding, EnvVarImportance.Optional,
+                "Initial password for BOOTSTRAP_ADMIN_EMAIL. They are asked to change it at first sign-in.",
+                "Remove after the first sign-in."),
             new("SEED_PARTNER_MEMBER_PASSWORD", Seeding, EnvVarImportance.Optional,
                 "Initial password for the seeded partnerships account. Ignored after creation."),
 
