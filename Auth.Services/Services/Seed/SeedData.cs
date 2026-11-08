@@ -554,6 +554,58 @@ namespace Auth.API.Seed
             }
         }
 
+        /// <summary>
+        /// Creates the first administrator from BOOTSTRAP_ADMIN_EMAIL and
+        /// BOOTSTRAP_ADMIN_PASSWORD, but only while no Admin exists at all.
+        ///
+        /// Without this a fresh deployment has no account that can open the admin pages,
+        /// and the only way in was hand-written SQL. Once any Admin exists this does
+        /// nothing, so leaving the variables set cannot reset a real admin's password —
+        /// though they should still be removed after first sign-in.
+        /// </summary>
+        public static async Task SeedBootstrapAdminAsync(IServiceProvider serviceProvider)
+        {
+            var email = Environment.GetEnvironmentVariable("BOOTSTRAP_ADMIN_EMAIL")?.Trim();
+            var password = Environment.GetEnvironmentVariable("BOOTSTRAP_ADMIN_PASSWORD");
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password)) return;
+
+            using var scope = serviceProvider.CreateScope();
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<SeedData>>();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+
+            if ((await userManager.GetUsersInRoleAsync(AppRoles.Admin)).Count > 0) return;
+
+            var user = await userManager.FindByEmailAsync(email);
+            if (user is null)
+            {
+                user = new User
+                {
+                    UserName = email,
+                    Email = email,
+                    FirstName = "Platform",
+                    LastName = "Admin",
+                    EmailConfirmed = true,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    MustChangePassword = true
+                };
+
+                var created = await userManager.CreateAsync(user, password);
+                if (!created.Succeeded)
+                {
+                    logger.LogError(
+                        "Bootstrap admin {Email} could not be created: {Errors}",
+                        email, string.Join(", ", created.Errors.Select(e => e.Description)));
+                    return;
+                }
+            }
+
+            await userManager.AddToRoleAsync(user, AppRoles.Admin);
+            logger.LogWarning(
+                "Bootstrap admin {Email} granted the Admin role. Remove BOOTSTRAP_ADMIN_* once signed in.", email);
+        }
+
         private sealed record StaffAccountSeed(
             string Email,
             string FirstName,

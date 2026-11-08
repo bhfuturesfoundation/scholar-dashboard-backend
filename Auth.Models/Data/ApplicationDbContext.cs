@@ -3,6 +3,7 @@ using Auth.Models.Entities.Email;
 using Auth.Models.Entities.Engagement;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Games;
+using Auth.Models.Entities.Settings;
 using Auth.Models.Entities.Mailing;
 using Auth.Models.Entities.News;
 using Auth.Models.Entities.Notifications;
@@ -58,6 +59,7 @@ namespace Auth.Models.Data
 
         /// <summary>Audit trail of database backups. See IBackupService.</summary>
         public DbSet<BackupRecord> BackupRecords { get; set; }
+        public DbSet<AppSetting> AppSettings { get; set; }
 
         // Engagement
         public DbSet<Achievement> Achievements { get; set; }
@@ -271,6 +273,14 @@ namespace Auth.Models.Data
             // triggered by hand at the same moment, so "look it up, then insert if missing"
             // is a race two callers can pass through together. Without this, a manual refresh
             // clicked while the background run was mid-flight would duplicate every post.
+            builder.Entity<AppSetting>(setting =>
+            {
+                setting.HasKey(s => s.Key);
+                setting.Property(s => s.Key).HasMaxLength(100);
+                setting.Property(s => s.Value).HasMaxLength(500);
+                setting.Property(s => s.UpdatedByUserId).HasMaxLength(450);
+            });
+
             builder.Entity<NewsPost>()
                 .HasIndex(p => p.SourceUrl)
                 .IsUnique();
