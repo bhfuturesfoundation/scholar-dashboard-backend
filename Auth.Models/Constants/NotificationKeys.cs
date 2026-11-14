@@ -67,6 +67,9 @@ namespace Auth.Models.Constants
         /// <summary>Params: title, body. Written by staff, not translated.</summary>
         public const string Announcement = "announcement.custom";
 
+        /// <summary>Params: title. A new document on the Resources tab.</summary>
+        public const string ResourcePublished = "resources.published";
+
         // ── System ────────────────────────────────────────────────────────────
         public const string Welcome = "system.welcome";
 
@@ -100,6 +103,7 @@ namespace Auth.Models.Constants
                 [MinigameInvite] = NotificationCategory.Minigame,
 
                 [Announcement] = NotificationCategory.Announcement,
+                [ResourcePublished] = NotificationCategory.Announcement,
 
                 [Welcome] = NotificationCategory.System,
             };
@@ -127,6 +131,8 @@ namespace Auth.Models.Constants
                 [StatusChanged] = "/progress",
 
                 [SuggestionStatusChanged] = "/suggestions",
+
+                [ResourcePublished] = "/resources",
 
                 [Welcome] = "/",
             };

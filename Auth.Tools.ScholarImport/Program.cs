@@ -150,12 +150,12 @@ if (!await roleManager.RoleExistsAsync(AppRoles.User))
 }
 
 var questionIds = await context.Questions
-    .Where(q => q.IsSkill && q.Order >= 1 && q.Order <= 4)
-    .ToDictionaryAsync(q => q.Order, q => q.QuestionId);
+    .Where(q => q.IsSkill && q.Active && q.SkillType != null)
+    .ToDictionaryAsync(q => (int)q.SkillType!, q => q.QuestionId);
 
 if (questionIds.Count != 4)
 {
-    Console.WriteLine($"Expected 4 skill questions (Order 1-4, IsSkill=true), found {questionIds.Count}. " +
+    Console.WriteLine($"Expected 4 active skill questions, one per goal area, found {questionIds.Count}. " +
                        "Aborting — Skill rows would have nowhere valid to point.");
     return 1;
 }

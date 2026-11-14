@@ -2,6 +2,7 @@
 using Auth.Models.Data;
 using Auth.Models.DTOs;
 using Auth.Models.Entities;
+using Auth.Models.Enums.Scholars;
 using Auth.Models.Response;
 using Auth.Services.Interfaces;
 using Microsoft.AspNetCore.Identity;
@@ -111,17 +112,7 @@ namespace Auth.Services.Services
         /// </summary>
         private const int SatisfactionQuestionOrder = 16;
 
-        /// <summary>
-        /// Roles that identify an FLS-portal account rather than a scholarship participant.
-        /// Accounts holding only these are excluded from the scholar journal overview —
-        /// they have no journal and were padding the list and the totals.
-        /// </summary>
-        private static readonly string[] NonScholarRoles =
-        {
-            AppRoles.FLSSpeaker, AppRoles.FLSAdmin, AppRoles.PartnerMember
-        };
-
-        public async Task<PagedResult<ScholarJournalOverviewDto>> GetJournalOverviewAsync(int page = 1, int pageSize = 100)
+        public async Task<PagedResult<ScholarJournalOverviewDto>> GetJournalOverviewAsync(int page = 1, int pageSize = 100, bool alumni = false)
         {
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 500);
@@ -132,21 +123,24 @@ namespace Auth.Services.Services
                     .AsNoTracking()
                     .ToDictionaryAsync(r => r.Id, r => r.Name);
 
-                var nonScholarRoleIds = rolesDict
-                    .Where(kvp => kvp.Value is not null && NonScholarRoles.Contains(kvp.Value))
+                var scholarRoleId = rolesDict
+                    .Where(kvp => kvp.Value == AppRoles.User)
                     .Select(kvp => kvp.Key)
-                    .ToList();
+                    .FirstOrDefault();
 
-                // Exclude accounts whose ONLY roles are FLS-portal roles. Filtering in the
-                // query keeps the count and the page in agreement — previously TotalCount
-                // counted every user while the page showed a filtered subset, so the
-                // pager reported more scholars than it could ever display.
+                // Only scholars have journals, so staff and FLS accounts are left out.
+                // Alumni are a separate view: the programme works with current scholars, but
+                // an alumnus's journals stay readable. Not-yet-classified scholars count as
+                // current so nobody vanishes from the list before their status is set.
+                var statuses = alumni
+                    ? new[] { ScholarStatus.Alumni }
+                    : new[] { ScholarStatus.Junior, ScholarStatus.Senior, ScholarStatus.Unassigned };
+
+                // Filtering in the query keeps the count and the page in agreement.
                 var scholarQuery = _context.Users
                     .AsNoTracking()
-                    .Where(u => !_context.UserRoles
-                        .Where(ur => ur.UserId == u.Id)
-                        .All(ur => nonScholarRoleIds.Contains(ur.RoleId)) ||
-                        !_context.UserRoles.Any(ur => ur.UserId == u.Id));
+                    .Where(u => _context.UserRoles.Any(ur => ur.UserId == u.Id && ur.RoleId == scholarRoleId))
+                    .Where(u => statuses.Contains(u.ScholarStatus));
 
                 var totalCount = await scholarQuery.CountAsync();
 
@@ -215,6 +209,8 @@ namespace Auth.Services.Services
                     LastName = u.LastName ?? string.Empty,
                     Email = u.Email ?? string.Empty,
                     Title = u.Title ?? string.Empty,
+                    ScholarStatus = (int)u.ScholarStatus,
+                    IsActive = u.IsActive,
                     Roles = rolesByUser.TryGetValue(u.Id, out var roles) ? roles : new List<string>(),
                     Submissions = BuildSubmissions(
                         answersByUser.GetValueOrDefault(u.Id),

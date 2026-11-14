@@ -155,24 +155,33 @@ namespace Auth.Services.Services
                 var scholar = await _context.Users
                     .AsNoTracking()
                     .Where(u => u.Id == scholarId)
-                    .Select(u => new { u.MentorId, u.FirstName, u.LastName })
+                    .Select(u => new { u.FirstName, u.LastName })
                     .FirstOrDefaultAsync();
 
-                if (scholar?.MentorId is not { Length: > 0 } mentorId) return;
+                if (scholar is null) return;
 
-                await _notifications.CreateAsync(new CreateNotificationRequest
+                var mentorIds = await _context.MentorAssignments
+                    .AsNoTracking()
+                    .Where(a => a.ScholarId == scholarId)
+                    .Select(a => a.MentorId)
+                    .ToListAsync();
+
+                foreach (var mentorId in mentorIds)
                 {
-                    UserId = mentorId,
-                    MessageKey = NotificationKeys.MenteeSubmitted,
-                    Params = new Dictionary<string, string>
+                    await _notifications.CreateAsync(new CreateNotificationRequest
                     {
-                        ["menteeName"] = $"{scholar.FirstName} {scholar.LastName}".Trim(),
-                        ["monthLabel"] = monthLabel
-                    },
-                    DedupeKey = $"mentee-submitted:{scholarId}:{monthYear}",
-                    WantsEmail = true,
-                    WantsPush = true
-                });
+                        UserId = mentorId,
+                        MessageKey = NotificationKeys.MenteeSubmitted,
+                        Params = new Dictionary<string, string>
+                        {
+                            ["menteeName"] = $"{scholar.FirstName} {scholar.LastName}".Trim(),
+                            ["monthLabel"] = monthLabel
+                        },
+                        DedupeKey = $"mentee-submitted:{scholarId}:{monthYear}",
+                        WantsEmail = true,
+                        WantsPush = true
+                    });
+                }
             }
             catch (Exception ex)
             {

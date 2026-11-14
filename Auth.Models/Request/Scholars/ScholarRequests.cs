@@ -60,5 +60,12 @@ namespace Auth.Models.Request.Scholars
         /// Skipped silently when Dropbox isn't configured.
         /// </summary>
         public bool ArchiveCredentials { get; set; } = true;
+
+        /// <summary>
+        /// For rows whose email already has an account: update that scholar's goals, mentors,
+        /// status and generation from the sheet instead of skipping the row. Names and
+        /// passwords are never changed by an import.
+        /// </summary>
+        public bool UpdateExisting { get; set; }
     }
 }

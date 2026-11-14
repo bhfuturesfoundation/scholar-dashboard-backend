@@ -27,4 +27,9 @@ namespace Auth.Models.Request
 
         public bool SendWelcomeEmail { get; set; } = true;
     }
+
+    public class DeleteAccountsRequest
+    {
+        public List<string> UserIds { get; set; } = new();
+    }
 }

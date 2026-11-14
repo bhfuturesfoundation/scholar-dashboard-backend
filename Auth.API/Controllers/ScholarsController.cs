@@ -163,6 +163,7 @@ namespace Auth.API.Controllers
             [FromQuery] int? generationId = null,
             [FromQuery] ScholarStatus status = ScholarStatus.Junior,
             [FromQuery] bool archiveCredentials = true,
+            [FromQuery] bool updateExisting = false,
             CancellationToken ct = default)
         {
             if (file is null || file.Length == 0)
@@ -182,7 +183,8 @@ namespace Auth.API.Controllers
                     DryRun = dryRun,
                     GenerationId = generationId,
                     Status = status,
-                    ArchiveCredentials = archiveCredentials
+                    ArchiveCredentials = archiveCredentials,
+                    UpdateExisting = updateExisting
                 },
                 UserId,
                 ct);
@@ -192,13 +194,13 @@ namespace Auth.API.Controllers
                 await _audit.LogAsync(
                     "Scholars.Imported",
                     UserId,
-                    $"File={file.FileName} Created={result.CreatedCount} Generation={result.GenerationName ?? "none"}",
+                    $"File={file.FileName} Created={result.CreatedCount} Updated={result.UpdatedCount} Goals={result.GoalsSetCount} Mentors={result.MentorsAssignedCount} Generation={result.GenerationName ?? "none"}",
                     Ip);
             }
 
             var message = dryRun
                 ? $"Validated {result.TotalRows} row(s) — no accounts created."
-                : $"Created {result.CreatedCount} scholar account(s).";
+                : $"Created {result.CreatedCount} and updated {result.UpdatedCount} scholar account(s).";
 
             return Ok(ApiResponse<ScholarImportResultDto>.SuccessResponse(result, message));
         }
@@ -244,11 +246,14 @@ namespace Auth.API.Controllers
             return Ok(ApiResponse<bool>.SuccessResponse(true, "Mentor assigned"));
         }
 
+        /// <summary>Removes one mentor (<paramref name="mentorId"/>) or, without it, all of them.</summary>
         [HttpPost("mentors/unassign/{scholarId}")]
-        public async Task<ActionResult<ApiResponse<bool>>> UnassignMentor(string scholarId, CancellationToken ct)
+        public async Task<ActionResult<ApiResponse<bool>>> UnassignMentor(
+            string scholarId, [FromQuery] string? mentorId = null, CancellationToken ct = default)
         {
-            await _mentors.UnassignAsync(scholarId, ct);
-            await _audit.LogAsync("Scholars.MentorUnassigned", UserId, $"Scholar={scholarId}", Ip);
+            await _mentors.UnassignAsync(scholarId, mentorId, ct);
+            await _audit.LogAsync("Scholars.MentorUnassigned", UserId,
+                $"Scholar={scholarId} Mentor={mentorId ?? "<all>"}", Ip);
 
             return Ok(ApiResponse<bool>.SuccessResponse(true, "Mentor removed"));
         }
@@ -289,7 +294,7 @@ namespace Auth.API.Controllers
 
             var message = dryRun
                 ? $"Validated {result.TotalRows} row(s) — nothing saved."
-                : $"{result.AssignedCount} assigned, {result.ReassignedCount} reassigned.";
+                : $"{result.AssignedCount} assigned, {result.ReassignedCount} scholar(s) had their mentors replaced.";
 
             return Ok(ApiResponse<MentorPairingResultDto>.SuccessResponse(result, message));
         }

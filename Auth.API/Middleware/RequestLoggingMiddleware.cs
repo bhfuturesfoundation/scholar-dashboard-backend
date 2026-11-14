@@ -4,6 +4,8 @@ namespace Auth.API.Middleware
 {
     public class RequestLoggingMiddleware
     {
+        private const long SlowRequestMs = 1000;
+
         private readonly RequestDelegate _next;
         private readonly ILogger<RequestLoggingMiddleware> _logger;
 
@@ -24,14 +26,18 @@ namespace Auth.API.Middleware
             {
                 sw.Stop();
 
-                // Skip health check noise in logs
                 if (!context.Request.Path.StartsWithSegments("/healthz"))
                 {
-                    _logger.LogInformation(
-                        "{Method} {Path}{Query} → {StatusCode} in {ElapsedMs}ms",
+                    // Path only: query strings carry SignalR access tokens and email links.
+                    // Successful, quick requests drop to Debug so the log keeps what someone
+                    // would actually look for (errors and slow calls) without paying for the rest.
+                    var notable = context.Response.StatusCode >= 400 || sw.ElapsedMilliseconds >= SlowRequestMs;
+
+                    _logger.Log(
+                        notable ? LogLevel.Information : LogLevel.Debug,
+                        "{Method} {Path} → {StatusCode} in {ElapsedMs}ms",
                         context.Request.Method,
                         context.Request.Path,
-                        context.Request.QueryString,
                         context.Response.StatusCode,
                         sw.ElapsedMilliseconds);
                 }

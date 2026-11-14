@@ -89,6 +89,18 @@ namespace Auth.API.Controllers.FLS
         [HttpGet("{uploadId:int}/download")]
         public async Task<IActionResult> Download(int uploadId)
         {
+            // FLS staff, or the speaker who uploaded it. Upload ids are sequential, so
+            // without this any signed-in account could walk through every speaker's CV.
+            var isStaff = User.IsInRole(AppRoles.Admin) || User.IsInRole(AppRoles.FLSAdmin);
+            if (!isStaff)
+            {
+                var profile = await _speakerService.GetProfileByUserIdAsync(GetUserId());
+                if (profile is null) return NotFound();
+
+                var own = await _uploadService.GetUploadsForSpeakerAsync(profile.Id);
+                if (own.All(u => u.Id != uploadId)) return NotFound();
+            }
+
             var (fileBytes, contentType, fileName) = await _uploadService.DownloadFileAsync(uploadId);
             return File(fileBytes, contentType, fileName);
         }

@@ -131,11 +131,7 @@ namespace Auth.Services.Services.FLS
             }).ToList();
         }
 
-        private static string Escape(string value)
-        {
-            if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
-                return $"\"{value.Replace("\"", "\"\"")}\"";
-            return value;
-        }
+        // Speaker names come from a public sign-up form, so the formula guard matters here.
+        private static string Escape(string value) => Operations.TabularExporter.CsvEscape(value);
     }
 }

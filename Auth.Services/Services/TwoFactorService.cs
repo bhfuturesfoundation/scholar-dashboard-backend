@@ -68,7 +68,7 @@ namespace Auth.Services.Services
 
             await _cache.SetStringAsync(cacheKey, code, cacheOptions);
 
-            _logger.LogInformation("2FA code generated for user {UserId}: {Code}", userId, code);
+            _logger.LogInformation("2FA code generated for user {UserId}", userId);
             return code;
         }
 
@@ -114,7 +114,7 @@ namespace Auth.Services.Services
 
         private string GenerateRandomCode()
         {
-            return new Random().Next(100000, 999999).ToString();
+            return System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
         }
     }
 }

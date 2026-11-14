@@ -123,7 +123,14 @@ namespace Auth.Models.DTOs.Scholars
 
         public int TotalRows { get; set; }
         public int CreatedCount { get; set; }
+        public int UpdatedCount { get; set; }
         public int SkippedCount { get; set; }
+
+        /// <summary>Goals written (new accounts and updated ones).</summary>
+        public int GoalsSetCount { get; set; }
+
+        /// <summary>Mentor links added.</summary>
+        public int MentorsAssignedCount { get; set; }
         public int FailedCount { get; set; }
 
         public List<string> DetectedColumns { get; set; } = new();
@@ -156,9 +163,20 @@ namespace Auth.Models.DTOs.Scholars
         public string Status { get; set; } = string.Empty;
         public bool IsActive { get; set; }
 
+        /// <summary>The first mentor, for older clients.</summary>
         public string? MentorId { get; set; }
         public string? MentorName { get; set; }
         public string? MentorEmail { get; set; }
+
+        public List<AssignedMentorDto> Mentors { get; set; } = new();
+    }
+
+    public class AssignedMentorDto
+    {
+        public string MentorId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public bool AllowJournalAccess { get; set; }
     }
 
     public class MentorAssignmentOverviewDto

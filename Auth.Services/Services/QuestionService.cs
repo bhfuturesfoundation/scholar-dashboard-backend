@@ -55,8 +55,37 @@ namespace Auth.Services.Services
                 q.Active &&
                 (excludingQuestionId == null || q.QuestionId != excludingQuestionId));
 
+        /// <summary>
+        /// A skill question needs a goal area, and only one active question may ask about
+        /// each area: a scholar's goal in that area is shown next to it.
+        /// </summary>
+        private async Task ValidateSkillTypeAsync(Question question, int? excludingQuestionId = null)
+        {
+            if (!question.IsSkill)
+            {
+                question.SkillType = null;
+                return;
+            }
+
+            if (question.SkillType is not { } type || !Enum.IsDefined(type))
+            {
+                throw new ValidationException("Choose which goal area this skill question is about.");
+            }
+
+            var taken = question.Active && await _context.Questions.AnyAsync(q =>
+                q.Active && q.IsSkill && q.SkillType == type &&
+                (excludingQuestionId == null || q.QuestionId != excludingQuestionId));
+
+            if (taken)
+            {
+                throw new ConflictException("Another active question already asks about this goal area.");
+            }
+        }
+
         public async Task<Question> CreateQuestionAsync(Question question)
         {
+            await ValidateSkillTypeAsync(question);
+
             if (await OrderTakenAsync(question.Order))
             {
                 _logger.LogWarning("Question with order {Order} already exists", question.Order);
@@ -90,9 +119,12 @@ namespace Auth.Services.Services
                 throw new ConflictException($"A question with order {updated.Order} already exists.");
             }
 
+            await ValidateSkillTypeAsync(updated, questionId);
+
             existing.Text = updated.Text;
             existing.Type = updated.Type;
             existing.IsSkill = updated.IsSkill;
+            existing.SkillType = updated.SkillType;
             existing.Active = updated.Active;
             existing.Order = updated.Order;
 

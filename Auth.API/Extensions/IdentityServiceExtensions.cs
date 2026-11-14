@@ -53,7 +53,11 @@ namespace Auth.API.Extensions
                 opts.Secret = secret;
                 opts.Issuer = issuer;
                 opts.Audience = audience;
-                opts.ExpirationInMinutes = 480; // 8 hours
+                // Short-lived: the web app renews it silently, so a leaked token is only
+                // useful briefly. JWT_EXPIRATION_MINUTES overrides.
+                opts.ExpirationInMinutes = int.TryParse(Environment.GetEnvironmentVariable("JWT_EXPIRATION_MINUTES"), out var minutes) && minutes is >= 5 and <= 1440
+                    ? minutes
+                    : 60;
                 opts.RefreshTokenExpirationInDays = 7;
             });
 

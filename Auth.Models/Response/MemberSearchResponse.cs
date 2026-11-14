@@ -6,6 +6,7 @@ namespace Auth.Models.Response
         public string FirstName { get; set; } = string.Empty;
         public string LastName { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
+        /// <summary>Junior or Senior, to tell two people with the same name apart. Emails are never returned.</summary>
+        public string Title { get; set; } = string.Empty;
     }
 }

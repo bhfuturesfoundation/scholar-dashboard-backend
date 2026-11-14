@@ -57,6 +57,7 @@ RUN set -eux; \
            > /etc/apt/sources.list.d/pgdg.list \
       && apt-get update \
       && apt-get install -y --no-install-recommends postgresql-client-16 \
+      && apt-get purge -y --auto-remove curl gnupg \
     ) || echo "WARNING: postgresql-client could not be installed; the pg_dump backup format will report as unavailable."; \
     rm -rf /var/lib/apt/lists/*
 
@@ -69,5 +70,10 @@ ENV BUILD_TIMESTAMP=$BUILD_TIMESTAMP
 
 # Railway expects port 8080
 ENV ASPNETCORE_URLS=http://+:8080
+
+# Workstation GC with memory conservation: the default server GC reserves heap per core,
+# which on a small single-instance service is RAM you pay for and never use.
+ENV DOTNET_gcServer=0 \
+    DOTNET_GCConserveMemory=5
 
 ENTRYPOINT ["dotnet", "Auth.API.dll"]

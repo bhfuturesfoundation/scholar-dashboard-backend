@@ -56,10 +56,33 @@ Every action above is recorded in **Admin → Audit** with who did it and when.
 | Change someone's role | Users → pencil button |
 | Someone leaves | Users → tick → **Set Inactive**. Journals are kept. For scholars who did not finish, also set status *Withdrawn* in Scholars |
 | New school year | Scholars → **Promote**: Preview, then Apply. Seniors → Alumni first, then Juniors → Seniors. Every run can be reverted from its history |
+| Update existing scholars from a sheet | Scholars → **Add scholars**, tick *Update existing scholars*. Sets status, generation, mentors and goals; never changes names or passwords |
+| Erase someone completely | Users → Status *Alumni* (or *Inactive*) → tick → **Delete permanently**, type the confirm word. Removes the account, journals and everything else they made |
 
-People are never deleted from the app, only deactivated. That keeps their journal
-history for reports. If someone asks for their data to be erased, contact the technical
-team.
+**Deleting cannot be undone.** Only inactive people, Alumni and Withdrawn scholars can be
+deleted, never administrators or yourself. Download a backup first if the journals might
+be needed for a report. Deactivating is still the normal way to handle someone leaving.
+
+## Mentors
+
+- A scholar can have **up to two mentors**; a mentor can have many scholars.
+  Scholars → **Mentors**: *Add a mentor* or the X to remove one. A pairing sheet can have
+  the columns `scholar email`, `mentor email` and `mentor 2 email`.
+- Each scholar decides **per mentor** whether that mentor may read their journals
+  (Dashboard → Your mentors, or Settings → Privacy). A mentor saying "I can't see the
+  journal" means the scholar has not shared with them yet.
+
+## Resources (documents for scholars)
+
+Admin or program manager → **Resources**. Upload PDF, images, Word, Excel or PowerPoint
+up to 20 MB. *Publish* shows it to scholars; *Notify* sends every current scholar a
+notification once (email is optional). Hide with the eye, remove with the bin.
+
+## Journal questions and goal areas
+
+**Questions**: each goal question must have a goal area, and each area only one active
+question. The table shows a warning when an area is missing. Scholars' goals appear next
+to the matching question.
 
 ## Changing deadlines, reminders and backups
 
