@@ -52,11 +52,22 @@ namespace Auth.Services.Services
             var user = await _context.Users
                 .AsNoTracking()
                 .Include(u => u.Generation)
-                .Include(u => u.Mentor)
+                .Include(u => u.MentorAssignments).ThenInclude(a => a.Mentor)
                 .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
                 ?? throw new NotFoundException("User", userId);
 
             var roles = await _userManager.GetRolesAsync(user);
+
+            var mentors = user.MentorAssignments
+                .OrderBy(a => a.AssignedAt)
+                .ThenBy(a => a.Id)
+                .Select(a => new AccountMentorDto
+                {
+                    MentorId = a.MentorId,
+                    Name = $"{a.Mentor!.FirstName} {a.Mentor.LastName}".Trim(),
+                    AllowJournalAccess = a.AllowJournalAccess
+                })
+                .ToList();
 
             var activeSessions = await _context.RefreshTokens
                 .CountAsync(t => t.UserId == userId
@@ -91,10 +102,9 @@ namespace Auth.Services.Services
                 // reporting "Unassigned", which would read as a problem to fix.
                 ScholarStatus = isScholar ? (int)user.ScholarStatus : null,
                 GenerationName = user.Generation?.Name,
-                MentorName = user.Mentor is null
-                    ? null
-                    : $"{user.Mentor.FirstName} {user.Mentor.LastName}".Trim(),
-                MentorJournalAccess = user.MentorId is null ? null : user.AllowMentorJournalAccess,
+                MentorName = mentors.Count == 0 ? null : string.Join(", ", mentors.Select(m => m.Name)),
+                MentorJournalAccess = mentors.Count == 0 ? null : mentors.Any(m => m.AllowJournalAccess),
+                Mentors = mentors,
 
                 TwoFactorEnabled = user.TwoFactorEnabled,
 

@@ -88,6 +88,10 @@ namespace Auth.Services.Services.Notifications
                 "{title}",
                 "{body}"),
 
+            [NotificationKeys.ResourcePublished] = new(
+                "New document: {title}",
+                "A new document, \"{title}\", is on the Resources tab."),
+
             [NotificationKeys.Welcome] = new(
                 "Welcome to the Scholar Dashboard",
                 "Your account is ready. Sign in to complete your first monthly journal."),
@@ -164,6 +168,10 @@ namespace Auth.Services.Services.Notifications
             [NotificationKeys.Announcement] = new(
                 "{title}",
                 "{body}"),
+
+            [NotificationKeys.ResourcePublished] = new(
+                "Novi dokument: {title}",
+                "Novi dokument \"{title}\" je dostupan u Resursima."),
 
             [NotificationKeys.Welcome] = new(
                 "Dobro došli u Panel stipendiste",

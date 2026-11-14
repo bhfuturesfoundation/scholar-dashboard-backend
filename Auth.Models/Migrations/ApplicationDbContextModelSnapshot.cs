@@ -1734,6 +1734,9 @@ namespace Auth.Models.Migrations
                     b.Property<int>("Order")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("SkillType")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1800,6 +1803,111 @@ namespace Auth.Models.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("RefreshTokens");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Resources.ResourceDocument", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ExternalPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("IsPublished")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("NotifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsPublished", "SortOrder");
+
+                    b.ToTable("ResourceDocuments");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Resources.ResourceDocumentFile", b =>
+                {
+                    b.Property<int>("DocumentId")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("Content")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("DocumentId");
+
+                    b.ToTable("ResourceDocumentFiles");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Scholars.MentorAssignment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("AllowJournalAccess")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("AssignedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MentorId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ScholarId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MentorId");
+
+                    b.HasIndex("ScholarId", "MentorId")
+                        .IsUnique();
+
+                    b.ToTable("MentorAssignments");
                 });
 
             modelBuilder.Entity("Auth.Models.Entities.Scholars.PromotionBatch", b =>
@@ -2087,9 +2195,6 @@ namespace Auth.Models.Migrations
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("integer");
 
-                    b.Property<bool>("AllowMentorJournalAccess")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text");
@@ -2121,9 +2226,6 @@ namespace Auth.Models.Migrations
 
                     b.Property<DateTimeOffset?>("LockoutEnd")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("MentorId")
-                        .HasColumnType("text");
 
                     b.Property<bool>("MustChangePassword")
                         .HasColumnType("boolean");
@@ -2170,8 +2272,6 @@ namespace Auth.Models.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("GenerationId");
-
-                    b.HasIndex("MentorId");
 
                     b.HasIndex("NormalizedEmail")
                         .HasDatabaseName("EmailIndex");
@@ -2616,6 +2716,36 @@ namespace Auth.Models.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Auth.Models.Entities.Resources.ResourceDocumentFile", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.Resources.ResourceDocument", "Document")
+                        .WithOne("File")
+                        .HasForeignKey("Auth.Models.Entities.Resources.ResourceDocumentFile", "DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
+            modelBuilder.Entity("Auth.Models.Entities.Scholars.MentorAssignment", b =>
+                {
+                    b.HasOne("Auth.Models.Entities.User", "Mentor")
+                        .WithMany("MenteeAssignments")
+                        .HasForeignKey("MentorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Auth.Models.Entities.User", "Scholar")
+                        .WithMany("MentorAssignments")
+                        .HasForeignKey("ScholarId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Mentor");
+
+                    b.Navigation("Scholar");
+                });
+
             modelBuilder.Entity("Auth.Models.Entities.Scholars.PromotionBatch", b =>
                 {
                     b.HasOne("Auth.Models.Entities.Scholars.ScholarGeneration", "Generation")
@@ -2693,14 +2823,7 @@ namespace Auth.Models.Migrations
                         .HasForeignKey("GenerationId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Auth.Models.Entities.User", "Mentor")
-                        .WithMany("Scholars")
-                        .HasForeignKey("MentorId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("Generation");
-
-                    b.Navigation("Mentor");
                 });
 
             modelBuilder.Entity("Auth.Models.Entities.UserAvatar", b =>
@@ -2807,6 +2930,11 @@ namespace Auth.Models.Migrations
                     b.Navigation("Notifications");
                 });
 
+            modelBuilder.Entity("Auth.Models.Entities.Resources.ResourceDocument", b =>
+                {
+                    b.Navigation("File");
+                });
+
             modelBuilder.Entity("Auth.Models.Entities.Scholars.PromotionBatch", b =>
                 {
                     b.Navigation("Entries");
@@ -2824,7 +2952,9 @@ namespace Auth.Models.Migrations
 
             modelBuilder.Entity("Auth.Models.Entities.User", b =>
                 {
-                    b.Navigation("Scholars");
+                    b.Navigation("MenteeAssignments");
+
+                    b.Navigation("MentorAssignments");
                 });
 #pragma warning restore 612, 618
         }

@@ -141,18 +141,13 @@ namespace Auth.API.Extensions
                         context.HttpContext.Response.Headers.RetryAfter = ((int)retryAfter.Value.TotalSeconds).ToString();
                     }
 
+                    // The address and email stay in the log; echoing them back told a caller
+                    // exactly how they were being identified.
                     var response = new
                     {
                         success = false,
                         message = "Too many requests. Please try again later.",
-                        details = new
-                        {
-                            ip = ipAddress,
-                            email = email,
-                            path = context.HttpContext.Request.Path.ToString(),
-                            method = context.HttpContext.Request.Method,
-                            retryAfter = retryAfter?.TotalSeconds ?? 60
-                        }
+                        details = new { retryAfter = retryAfter?.TotalSeconds ?? 60 }
                     };
 
                     var loggerFactory = context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>();
@@ -174,28 +169,13 @@ namespace Auth.API.Extensions
             return services;
         }
 
-        private static string GetClientIpAddress(HttpContext context)
-        {
-            string ip = null;
-
-            var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-            if (!string.IsNullOrEmpty(forwardedFor))
-            {
-                ip = forwardedFor.Split(',')[0].Trim();
-            }
-
-            if (string.IsNullOrEmpty(ip))
-            {
-                ip = context.Request.Headers["X-Real-IP"].FirstOrDefault();
-            }
-
-            if (string.IsNullOrEmpty(ip) && context.Connection.RemoteIpAddress != null)
-            {
-                ip = context.Connection.RemoteIpAddress.ToString();
-            }
-
-            return string.IsNullOrEmpty(ip) ? "unknown" : ip;
-        }
+        /// <summary>
+        /// The client address as resolved by the forwarded-headers middleware, which trusts
+        /// exactly one proxy hop. Reading X-Forwarded-For here directly took the left-most
+        /// value, which the client writes itself, so rotating it skipped every limit.
+        /// </summary>
+        private static string GetClientIpAddress(HttpContext context) =>
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         private static string GetEmailFromContext(HttpContext context)
         {

@@ -99,8 +99,9 @@ in the variables below on purpose: those are secrets or can take the site down.
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Browser push notifications. Changing the keys drops every existing subscription. |
 | `GOOGLE_CREDENTIALS`, `SPREADSHEET_ID` | Volunteering team hours sheet. Note the name: `GOOGLE_CREDENTIALS`, not `GOOGLE_SHEETS_CREDENTIALS`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | "Sign in with Google/GitHub" for existing accounts |
-| `REDIS_URL` | Needed only if the API runs on more than one instance |
-| `RABBITMQ_URL`, `RABBITMQ_ENABLED` | Message broker for queued email |
+| `JWT_EXPIRATION_MINUTES` | How long a sign-in token lasts before it is silently renewed, 5 to 1440. Default 60 |
+| `REDIS_URL` | Needed only if the API runs on more than one instance. With one instance, leave it unset and **delete the Redis service** to save money |
+| `RABBITMQ_URL`, `RABBITMQ_ENABLED` | Not needed. Without them the API sends email directly in the background. To save money, set `RABBITMQ_ENABLED=false` (or remove `RABBITMQ_URL`), deploy, send a test email, then **delete the RabbitMQ service** |
 
 ## Environment variables — web app (Vercel)
 
@@ -126,6 +127,23 @@ If the web app ever moves to a new domain, change three things together:
 5. When Railway shows the deploy as active, open Admin → Operations → Deploy health:
    everything green or "not configured", and the database check healthy.
 6. Sign in as an admin and as a test scholar. Send a test email.
+
+## Releases with a one-way data change
+
+| Migration | What it does | Undo |
+|---|---|---|
+| `AddMentorAssignments` | Moves every scholar's mentor into a new table that allows two mentors, keeping each scholar's journal-sharing choice, then removes the old mentor column | Reverting keeps only each scholar's first mentor |
+| `AddQuestionSkillType` | Gives each goal question its goal area, based on its order (1 Personal, 2 Professional, 3 Teamwork and leadership, 4 Knowledge) | Safe |
+| `AddResourceDocuments` | Adds the Resources table and lists the 8 built-in PDFs in it | Removes uploaded documents |
+
+**Take a backup before deploying these.** After the deploy, open Scholars → Mentors and
+check a few pairings, and Questions to check each goal question has its area.
+
+## Housekeeping the API does by itself
+
+Once a day it removes data nobody needs any more, to keep the database small:
+sign-in tokens that ended over 30 days ago, dismissed notifications older than 90 days,
+read notifications older than 180 days, and audit entries older than a year.
 
 ## Rolling back
 

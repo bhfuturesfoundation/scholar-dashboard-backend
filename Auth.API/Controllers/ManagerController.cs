@@ -66,11 +66,12 @@ namespace Auth.API.Controllers
         [HttpGet("overview")]
         public async Task<ActionResult<ApiResponse<PagedResult<ScholarJournalOverviewDto>>>> GetJournalOverview(
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 100)
+            [FromQuery] int pageSize = 100,
+            [FromQuery] bool alumni = false)
         {
             try
             {
-                var result = await _managerService.GetJournalOverviewAsync(page, pageSize);
+                var result = await _managerService.GetJournalOverviewAsync(page, pageSize, alumni);
                 return Ok(ApiResponse<PagedResult<ScholarJournalOverviewDto>>.SuccessResponse(result, "Journal overview fetched successfully"));
             }
             catch (Exception ex)

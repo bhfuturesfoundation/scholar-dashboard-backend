@@ -16,13 +16,14 @@ namespace Auth.Services.Interfaces
         Task<bool> IsMentorAsync(string userId);
         Task<bool> IsMenteeOfMentorAsync(string menteeId, string mentorId);
         Task<MentorDto> GetMentorByMenteeIdAsync(string menteeId);
+        Task<List<MentorAccessDto>> GetMentorsByMenteeIdAsync(string menteeId);
         Task<MenteeWithMentorDto> GetMenteeWithMentorAsync(string menteeId);
         Task<bool> IsMenteeAsync(string userId);
         Task<MenteeDto> GetMenteeByIdAsync(string menteeId);
 
         // Journal permission methods
         Task<bool> HasMentorJournalAccessAsync(string menteeId);
-        Task<bool> UpdateMentorJournalAccessAsync(string menteeId, bool allowAccess);
+        Task<bool> UpdateMentorJournalAccessAsync(string menteeId, bool allowAccess, string? mentorId = null);
         Task<bool> CanMentorAccessJournalAsync(string mentorId, string menteeId);
     }
 }

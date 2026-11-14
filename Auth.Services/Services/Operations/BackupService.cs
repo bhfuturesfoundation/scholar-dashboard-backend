@@ -243,7 +243,7 @@ namespace Auth.Services.Services.Operations
                 tables = tables.ToDictionary(t => t.Name, t => t.Rows)
             };
 
-            var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(payload);
 
             return (Encoding.UTF8.GetBytes(json), "application/json",
                 tables.Count, tables.Sum(t => t.Rows.Count));

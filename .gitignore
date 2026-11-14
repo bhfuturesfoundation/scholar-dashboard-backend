@@ -97,3 +97,6 @@ _ReSharper*/
 *.[Rr]e[Ss]harper
 *.DotSettings.user
 /Auth.API/credentials.json
+
+# Personal data never belongs in the repo
+Auth.API/SeedInputs/*.csv

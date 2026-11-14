@@ -29,6 +29,8 @@ using Auth.Services.Services.Storage;
 using Auth.Services.Settings;
 using Auth.Services.Interfaces.Settings;
 using Auth.Services.Services.Settings;
+using Auth.Services.Interfaces.Resources;
+using Auth.Services.Services.Resources;
 using Auth.Services.Services;
 using Auth.Services.Services.Engagement;
 using Auth.Services.Services.FLS;
@@ -36,6 +38,8 @@ using DotNetEnv;
 using Mapster;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using StackExchange.Redis;
 
@@ -55,6 +59,7 @@ var appSettingsProvider = new AppSettingsConfigurationProvider();
 ((IConfigurationBuilder)builder.Configuration).Add(appSettingsProvider);
 builder.Services.AddSingleton(appSettingsProvider);
 builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
+builder.Services.AddScoped<IResourceDocumentService, ResourceDocumentService>();
 
 // === Add services ===
 builder.Services.AddPersistenceServices(builder.Configuration);
@@ -302,7 +307,42 @@ builder.Services.ConfigureApplicationCookie(options =>
 });
 
 var ProcessStart = DateTime.UtcNow;
+// Railway terminates TLS and adds one X-Forwarded-For hop. Trust exactly that hop, so the
+// client address (rate limits, audit) and the https scheme (links in emails) are right and
+// a client-supplied X-Forwarded-For can't override them.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Compress JSON over HTTPS: journal and user lists shrink several times over.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+});
+
+// Every endpoint requires a signed-in caller unless it says [AllowAnonymous], so a
+// controller that forgets [Authorize] fails closed instead of open.
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+});
+
 var app = builder.Build();
+
+app.UseForwardedHeaders();
+// Not on sign-in responses, which carry tokens (compression plus secrets is what BREACH-style
+// attacks need), nor on the SignalR hubs, whose streaming transports must not be buffered.
+app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments("/api/auth")
+            && !context.Request.Path.StartsWithSegments("/hubs")
+            && !context.Request.Path.StartsWithSegments("/api/hubs"),
+    branch => branch.UseResponseCompression());
 
 // === Middlewares ===
 if (app.Environment.IsDevelopment())
@@ -313,6 +353,22 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<RequestLoggingMiddleware>();
+
+// The API serves JSON and files, never pages: nothing should frame it, sniff its content
+// types, or receive a referrer from it.
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+    if (!app.Environment.IsDevelopment())
+    {
+        headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    }
+    await next();
+});
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseRouting();
 app.UseCors("AllowSpecificOrigin");
@@ -320,7 +376,7 @@ app.UseHttpsRedirection();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapHealthChecks("/healthz");
+app.MapHealthChecks("/healthz").AllowAnonymous();
 
 // Which build is actually running. Unauthenticated and dependency-free on purpose.
 //
@@ -346,7 +402,7 @@ app.MapGet("/version", () => Results.Ok(new
     // image — and vice versa.
     hasOperationsApi = true,
     hasMailingApi = true
-}));
+})).AllowAnonymous();
 app.MapHub<MinigamesHub>("/hubs/minigames").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 app.MapHub<MinigamesHub>("/api/hubs/minigames").RequireRateLimiting("signalr-hub").RequireCors("AllowSpecificOrigin");
 
