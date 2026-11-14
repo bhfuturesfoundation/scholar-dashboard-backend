@@ -12,6 +12,8 @@ namespace Auth.Services.Services
             _logger = logger;
         }
 
+        public bool DeliversMessages => false;
+
         public void PublishEmailMessage(string queueName, object message)
         {
             _logger.LogWarning("RabbitMQ not available - message to {Queue} not sent", queueName);

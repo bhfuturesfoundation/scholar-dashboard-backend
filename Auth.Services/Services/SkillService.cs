@@ -1,4 +1,5 @@
-﻿using Auth.Models.Data;
+using Auth.Models.Data;
+using Auth.Models.Enums;
 using Auth.Models.DTOs;
 using Auth.Models.Entities;
 using Auth.Models.Exceptions;
@@ -12,15 +13,6 @@ namespace Auth.Services.Services
     {
         private readonly ApplicationDbContext _context;
         private readonly ILogger<SkillService> _logger;
-
-        // Map slots to question orders
-        private static readonly Dictionary<int, int> SlotToQuestionOrder = new()
-        {
-            { 1, 1 }, // Soft Skill
-            { 2, 2 }, // Hard Skill
-            { 3, 3 }, // Interpersonal Skill
-            { 4, 4 }  // Knowledge Skill
-        };
 
         private static readonly Dictionary<int, string> SlotToSkillType = new()
         {
@@ -68,10 +60,10 @@ namespace Auth.Services.Services
             if (string.IsNullOrWhiteSpace(skillAnswer))
                 throw new ValidationException("Skill answer cannot be empty");
 
-            // Get the question for this slot
-            var questionOrder = SlotToQuestionOrder[slot];
+            // Slot N is goal area N; the question is found by its area, not its position.
+            var skillType = (SkillType)slot;
             var question = await _context.Questions
-                .FirstOrDefaultAsync(q => q.Order == questionOrder && q.IsSkill && q.Active);
+                .FirstOrDefaultAsync(q => q.SkillType == skillType && q.IsSkill && q.Active);
 
             if (question == null)
                 throw new ValidationException($"Skill question for slot {slot} not found");
@@ -138,6 +130,9 @@ namespace Auth.Services.Services
                 };
             }
         }
+
+        public Task<string?> GetOwnerIdAsync(int skillId) =>
+            _context.Skills.Where(s => s.SkillId == skillId).Select(s => (string?)s.ScholarId).FirstOrDefaultAsync();
 
         public async Task ToggleSkillStatusAsync(int skillId)
         {

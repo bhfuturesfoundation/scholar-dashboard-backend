@@ -143,6 +143,18 @@ namespace Auth.API.Controllers
                 await _adminAccountService.SetTemporaryPasswordAsync(GetCallerId()!, userId, GetIp(), ct),
                 "Temporary password set"));
 
+        /// <summary>Permanent and irreversible. The web app asks the admin to type a confirmation first.</summary>
+        [HttpPost("users/delete")]
+        public async Task<ActionResult<ApiResponse<DeleteAccountsResultDto>>> DeleteUsers(
+            [FromBody] DeleteAccountsRequest request, CancellationToken ct)
+        {
+            if (request.UserIds.Count == 0)
+                return BadRequest(ApiResponse<DeleteAccountsResultDto>.ErrorResponse("Choose at least one account."));
+
+            var result = await _adminAccountService.DeleteAccountsAsync(GetCallerId()!, request.UserIds, GetIp(), ct);
+            return Ok(ApiResponse<DeleteAccountsResultDto>.SuccessResponse(result, $"Deleted {result.DeletedCount} account(s)"));
+        }
+
         [HttpPost("users/{userId}/sign-out-everywhere")]
         public async Task<ActionResult<ApiResponse<int>>> SignOutEverywhere(string userId, CancellationToken ct) =>
             Ok(ApiResponse<int>.SuccessResponse(

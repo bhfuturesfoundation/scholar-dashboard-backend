@@ -66,6 +66,9 @@ namespace Auth.Services.Services.Notifications
         private readonly ILogger<NotificationSchedulerService> _logger;
 
         private DateTime _lastSweepUtc = DateTime.MinValue;
+        private DateTime _lastPruneUtc = DateTime.MinValue;
+
+        private static readonly TimeSpan PruneInterval = TimeSpan.FromDays(1);
 
         public NotificationSchedulerService(
             IServiceScopeFactory scopeFactory,
@@ -144,6 +147,12 @@ namespace Auth.Services.Services.Notifications
                         await SweepJournalRemindersAsync(stoppingToken);
                         await SweepWeeklyDigestAsync(stoppingToken);
                     }
+
+                    if (DateTime.UtcNow - _lastPruneUtc >= PruneInterval)
+                    {
+                        _lastPruneUtc = DateTime.UtcNow;
+                        await PruneHistoryAsync(stoppingToken);
+                    }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -157,6 +166,38 @@ namespace Auth.Services.Services.Notifications
 
                 try { await Task.Delay(OutboxInterval, stoppingToken); }
                 catch (OperationCanceledException) { break; }
+            }
+        }
+
+        /// <summary>
+        /// Deletes rows nobody will look at again, so the database (and every backup of it)
+        /// stops growing without bound: dead sign-in sessions after 30 days, dismissed
+        /// notifications after 90, read ones after 180, and audit entries after a year.
+        /// </summary>
+        private async Task PruneHistoryAsync(CancellationToken cancellationToken)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var now = DateTime.UtcNow;
+
+            var tokens = await context.RefreshTokens
+                .Where(t => t.ExpiryTime < now.AddDays(-30) || (t.RevokedAt != null && t.RevokedAt < now.AddDays(-30)))
+                .ExecuteDeleteAsync(cancellationToken);
+
+            var notifications = await context.Notifications
+                .Where(n => (n.DismissedAt != null && n.DismissedAt < now.AddDays(-90))
+                         || (n.ReadAt != null && n.ReadAt < now.AddDays(-180)))
+                .ExecuteDeleteAsync(cancellationToken);
+
+            var audit = await context.AuditEvents
+                .Where(a => a.Timestamp < now.AddDays(-365))
+                .ExecuteDeleteAsync(cancellationToken);
+
+            if (tokens + notifications + audit > 0)
+            {
+                _logger.LogInformation(
+                    "Pruned history: {Tokens} sessions, {Notifications} notifications, {Audit} audit entries.",
+                    tokens, notifications, audit);
             }
         }
 

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using Auth.Models.Constants;
 using Auth.Models.Request.FLS;
 using Auth.Models.Response;
@@ -38,6 +39,7 @@ namespace Auth.API.Controllers.FLS
         /// a speaker creates their account in the first place.
         /// </summary>
         [AllowAnonymous]
+        [EnableRateLimiting("auth-email")]
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] FLSRegisterRequest request)
         {

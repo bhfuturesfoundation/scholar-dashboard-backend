@@ -59,4 +59,17 @@ namespace Auth.Models.DTOs.Admin
 
         public bool WelcomeEmailSent { get; set; }
     }
+
+    public class DeleteAccountsResultDto
+    {
+        public int DeletedCount { get; set; }
+        public List<DeleteAccountSkipDto> Skipped { get; set; } = new();
+    }
+
+    public class DeleteAccountSkipDto
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Reason { get; set; } = string.Empty;
+    }
 }

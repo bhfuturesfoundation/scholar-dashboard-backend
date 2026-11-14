@@ -8,9 +8,9 @@ namespace Auth.Services.Interfaces.Scholars
         public bool DryRun { get; set; } = true;
 
         /// <summary>
-        /// Replace an existing mentor when the scholar already has a different one.
-        /// Off by default — a reassignment is a decision, not a side effect of re-uploading
-        /// a list.
+        /// Replace a scholar's current mentors with the ones in the file. Off by default — a
+        /// reassignment is a decision, not a side effect of re-uploading a list. When off,
+        /// mentors in the file are added alongside existing ones, up to the limit.
         /// </summary>
         public bool ReassignExisting { get; set; }
     }
@@ -36,7 +36,8 @@ namespace Auth.Services.Interfaces.Scholars
 
         Task AssignAsync(string scholarId, string mentorId, CancellationToken cancellationToken = default);
 
-        Task UnassignAsync(string scholarId, CancellationToken cancellationToken = default);
+        /// <summary>Removes one mentor, or every mentor when <paramref name="mentorId"/> is null.</summary>
+        Task UnassignAsync(string scholarId, string? mentorId = null, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Pairs scholars to mentors from a spreadsheet of mentor-email / scholar-email rows.

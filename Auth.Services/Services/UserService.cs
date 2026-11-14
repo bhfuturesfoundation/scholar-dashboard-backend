@@ -1,5 +1,8 @@
 ﻿
+using Auth.Models.Constants;
+using Auth.Models.Data;
 using Auth.Models.Entities;
+using Auth.Models.Enums.Scholars;
 using Auth.Models.Results;
 using Auth.Models.Exceptions;
 using Auth.Models.Request;
@@ -18,9 +21,16 @@ namespace Auth.Services.Services
         private readonly SignInManager<User> _signInManager;
         private readonly ILogger<UserService> _logger;
         private readonly IMapper _mapper;
+        private readonly ApplicationDbContext _context;
 
-        public UserService(UserManager<User> userManager, SignInManager<User> signInManager, ILogger<UserService> logger, IMapper mapper)
+        public UserService(
+            UserManager<User> userManager,
+            SignInManager<User> signInManager,
+            ILogger<UserService> logger,
+            IMapper mapper,
+            ApplicationDbContext context)
         {
+            _context = context;
             _userManager = userManager;
             _signInManager = signInManager;
             _logger = logger;
@@ -110,10 +120,14 @@ namespace Auth.Services.Services
             var users = await _userManager.Users
                 .AsNoTracking()
                 .Where(user => user.IsActive)
+                // Only current scholars: alumni, staff and FLS accounts are not people a
+                // scholar recognises or invites to a game.
+                .Where(user => user.ScholarStatus == ScholarStatus.Junior || user.ScholarStatus == ScholarStatus.Senior)
+                .Where(user => _context.UserRoles.Any(ur => ur.UserId == user.Id && _context.Roles.Any(r => r.Id == ur.RoleId && r.Name == AppRoles.User)))
                 .Where(user =>
                     (user.FirstName ?? string.Empty).ToLower().Contains(lowered)
                     || (user.LastName ?? string.Empty).ToLower().Contains(lowered)
-                    || (user.Email ?? string.Empty).ToLower().Contains(lowered))
+                    || ((user.FirstName ?? string.Empty) + " " + (user.LastName ?? string.Empty)).ToLower().Contains(lowered))
                 .Where(user => excludeUserId == null || user.Id != excludeUserId)
                 .OrderBy(user => user.FirstName)
                 .ThenBy(user => user.LastName)
@@ -126,7 +140,7 @@ namespace Auth.Services.Services
                 var displayName = string.Join(" ", new[] { user.FirstName, user.LastName }.Where(value => !string.IsNullOrWhiteSpace(value)));
                 if (string.IsNullOrWhiteSpace(displayName))
                 {
-                    displayName = string.IsNullOrWhiteSpace(user.Email) ? "Scholar" : user.Email;
+                    displayName = "Scholar";
                 }
 
                 results.Add(new MemberSearchResponse
@@ -135,7 +149,7 @@ namespace Auth.Services.Services
                     FirstName = user.FirstName ?? string.Empty,
                     LastName = user.LastName ?? string.Empty,
                     DisplayName = displayName,
-                    Email = user.Email ?? string.Empty
+                    Title = user.ScholarStatus.ToString()
                 });
             }
 

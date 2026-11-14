@@ -10,12 +10,11 @@ namespace Auth.Models.Entities
         public string? LastName { get; set; }
         public string? Title { get; set; }
 
-        // Mentor relationship
-        public string? MentorId { get; set; }
-        public User? Mentor { get; set; }
+        /// <summary>This account's mentors, when it is a scholar.</summary>
+        public ICollection<MentorAssignment> MentorAssignments { get; set; } = new List<MentorAssignment>();
 
-        // Mentor → many mentees
-        public ICollection<User> Scholars { get; set; } = new List<User>();
+        /// <summary>The scholars this account mentors, when it is a mentor.</summary>
+        public ICollection<MentorAssignment> MenteeAssignments { get; set; } = new List<MentorAssignment>();
 
         public DateTime? UpdatedAt { get; set; }
         public DateTime CreatedAt { get; set; }
@@ -37,7 +36,6 @@ namespace Auth.Models.Entities
         /// hole. A counter has no such boundary.
         /// </summary>
         public int TokenVersion { get; set; }
-        public bool AllowMentorJournalAccess { get; set; } = false;
 
         // ── Scholar lifecycle ─────────────────────────────────────────────────
 

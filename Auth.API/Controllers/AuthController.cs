@@ -1,4 +1,5 @@
 using Auth.API.Helpers;
+using Auth.Models.Constants;
 using Auth.Models.Exceptions;
 using Auth.Services.Interfaces;
 using Auth.Models.DTOs.Account;
@@ -201,6 +202,7 @@ public class AuthController : ControllerBase
         return File(avatar.Bytes, avatar.ContentType);
     }
 
+    [AllowAnonymous]
     [EnableRateLimiting("auth-email")]
     [HttpPost("register")]
     public async Task<ActionResult<ApiResponse<RegisterResponse>>> Register([FromBody] RegisterRequest request)
@@ -246,6 +248,8 @@ public class AuthController : ControllerBase
             "Registration successful. Please check your email to confirm your account. You're now logged in."));
     }
 
+    [AllowAnonymous]
+    [EnableRateLimiting("ip-only")]
     [HttpGet("confirm-email")]
     public async Task<IActionResult> ConfirmEmail(string userId, string token)
     {
@@ -276,6 +280,7 @@ public class AuthController : ControllerBase
         }
     }
 
+    [AllowAnonymous]
     [EnableRateLimiting("ip-only")]
     [HttpPost("resend-confirmation-email")]
     public async Task<IActionResult> ResendConfirmationEmail([FromBody] ResendConfirmationEmailRequest request)
@@ -300,6 +305,7 @@ public class AuthController : ControllerBase
             "A confirmation email has been sent. Please check your inbox."));
     }
 
+    [AllowAnonymous]
     [EnableRateLimiting("auth-email")]
     [HttpPost("login")]
     public async Task<ActionResult<ApiResponse<AuthResponse>>> Login([FromBody] LoginRequest request)
@@ -365,7 +371,8 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<CurrentUserResponse>.SuccessResponse(user, "User Data"));
     }
 
-    [Authorize]
+    // Scholarship accounts only: an FLS sign-up must not be able to list scholars.
+    [Authorize(Roles = AppRoles.Admin + "," + AppRoles.ProgramManager + "," + AppRoles.Mentor + "," + AppRoles.User + "," + AppRoles.VolunteeringTeam)]
     [HttpGet("members/search")]
     public async Task<ActionResult<ApiResponse<List<MemberSearchResponse>>>> SearchMembers([FromQuery] string query, [FromQuery] int limit = 8)
     {
@@ -382,6 +389,7 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<bool>.SuccessResponse(result, "2FA enabled"));
     }
 
+    [AllowAnonymous]
     [HttpPost("refresh")]
     public async Task<ActionResult<ApiResponse<AuthResponse>>> Refresh()
     {
@@ -438,6 +446,7 @@ public class AuthController : ControllerBase
         ));
     }
 
+    [AllowAnonymous]
     [EnableRateLimiting("auth-email")]
     [HttpPost("two-factor")]
     public async Task<ActionResult<ApiResponse<AuthResponse>>> TwoFactorVerify([FromBody] TwoFactorRequest request)
@@ -477,6 +486,8 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse<bool>.ErrorResponse("Failed to change password. " + ex.Message));
         }
     }
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-email")]
     [HttpPost("forgot-password")]
     public async Task<ActionResult<ApiResponse<bool>>> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
@@ -505,6 +516,8 @@ public class AuthController : ControllerBase
     }
 
 
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-email")]
     [HttpPost("reset-password")]
     public async Task<ActionResult<ApiResponse<bool>>> ResetPassword([FromBody] ResetPasswordRequest request)
     {
@@ -523,6 +536,10 @@ public class AuthController : ControllerBase
 
             user.MustChangePassword = false;
             await _userService.UpdateUserAsync(user);
+
+            // Whoever knew the old password, or holds a session made with it, is out now.
+            await _accountService.RevokeSessionsAsync(
+                user.Id, "Password reset by email link", HttpContext.Connection.RemoteIpAddress?.ToString());
 
             await _auditService.LogAsync("Password.Reset", payload: request.Email, ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString());
 

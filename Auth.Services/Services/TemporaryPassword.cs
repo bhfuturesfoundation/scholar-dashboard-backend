@@ -36,6 +36,11 @@ namespace Auth.Services.Services
                 (chars[i], chars[j]) = (chars[j], chars[i]);
             }
 
+            // Never start with a symbol: a leading @, + or - is read as a formula when the
+            // password lands in a spreadsheet, and the CSV guard would have to alter it.
+            var firstLetter = chars.FindIndex(char.IsLetterOrDigit);
+            (chars[0], chars[firstLetter]) = (chars[firstLetter], chars[0]);
+
             return new string(chars.ToArray());
 
             static char Pick(string set) => set[RandomNumberGenerator.GetInt32(set.Length)];

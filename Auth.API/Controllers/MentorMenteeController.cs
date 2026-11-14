@@ -239,6 +239,16 @@ namespace Auth.API.Controllers
             return Ok(mentor);
         }
 
+        /// <summary>Every mentor of the current scholar, with journal access per mentor.</summary>
+        [HttpGet("my-mentors")]
+        public async Task<ActionResult<List<MentorAccessDto>>> GetMyMentors()
+        {
+            var userId = _userManager.GetUserId(User);
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            return Ok(await _mentorMenteeService.GetMentorsByMenteeIdAsync(userId));
+        }
+
         /// <summary>
         /// Gets the current user's information with their mentor (for mentees)
         /// Mentor will be null if no mentor is assigned
@@ -344,11 +354,11 @@ namespace Auth.API.Controllers
                 return BadRequest(new { message = "User is not a mentee" });
             }
 
-            var success = await _mentorMenteeService.UpdateMentorJournalAccessAsync(userId, dto.AllowAccess);
+            var success = await _mentorMenteeService.UpdateMentorJournalAccessAsync(userId, dto.AllowAccess, dto.MentorId);
 
             if (!success)
             {
-                return StatusCode(500, new { message = "Failed to update journal access permission" });
+                return NotFound(new { message = "That mentor is not assigned to you" });
             }
 
             return Ok(new
@@ -372,14 +382,14 @@ namespace Auth.API.Controllers
                 return Unauthorized();
             }
 
-            var hasAccess = await _mentorMenteeService.HasMentorJournalAccessAsync(userId);
-            var mentor = await _mentorMenteeService.GetMentorByMenteeIdAsync(userId);
+            var mentors = await _mentorMenteeService.GetMentorsByMenteeIdAsync(userId);
 
             return Ok(new JournalAccessStatusDto
             {
-                AllowMentorJournalAccess = hasAccess,
-                HasMentor = mentor != null,
-                Mentor = mentor
+                AllowMentorJournalAccess = mentors.Any(m => m.AllowJournalAccess),
+                HasMentor = mentors.Count > 0,
+                Mentor = mentors.FirstOrDefault()?.Mentor,
+                Mentors = mentors
             });
         }
 
@@ -392,7 +402,7 @@ namespace Auth.API.Controllers
             string menteeId,
             [FromBody] UpdateJournalAccessDto dto)
         {
-            var success = await _mentorMenteeService.UpdateMentorJournalAccessAsync(menteeId, dto.AllowAccess);
+            var success = await _mentorMenteeService.UpdateMentorJournalAccessAsync(menteeId, dto.AllowAccess, dto.MentorId);
 
             if (!success)
             {
@@ -446,7 +456,7 @@ namespace Auth.API.Controllers
                 });
             }
 
-            var hasPermission = await _mentorMenteeService.HasMentorJournalAccessAsync(menteeId);
+            var hasPermission = await _mentorMenteeService.CanMentorAccessJournalAsync(userId, menteeId);
 
             return Ok(new CanAccessJournalDto
             {
@@ -465,13 +475,19 @@ namespace Auth.API.Controllers
     public class UpdateJournalAccessDto
     {
         public bool AllowAccess { get; set; }
+
+        /// <summary>One mentor to change. Null changes every mentor the scholar has.</summary>
+        public string? MentorId { get; set; }
     }
 
     public class JournalAccessStatusDto
     {
         public bool AllowMentorJournalAccess { get; set; }
         public bool HasMentor { get; set; }
+        /// <summary>The first mentor, for older clients that show only one.</summary>
         public MentorDto? Mentor { get; set; }
+
+        public List<MentorAccessDto> Mentors { get; set; } = new();
     }
 
     public class CanAccessJournalDto

@@ -45,11 +45,14 @@ namespace Auth.Models.DTOs.Account
 
         public string? GenerationName { get; set; }
 
-        /// <summary>Mentor's display name, when one is assigned.</summary>
+        /// <summary>Mentors' display names joined with commas, when any are assigned.</summary>
         public string? MentorName { get; set; }
 
-        /// <summary>Whether this scholar currently lets their mentor read their journal.</summary>
+        /// <summary>Whether this scholar shares the journal with at least one mentor; null without mentors.</summary>
         public bool? MentorJournalAccess { get; set; }
+
+        /// <summary>Each mentor and whether this scholar shares the journal with them.</summary>
+        public List<AccountMentorDto> Mentors { get; set; } = new();
 
         // ── Security ──────────────────────────────────────────────────────────
 
@@ -102,5 +105,12 @@ namespace Auth.Models.DTOs.Account
         public string ContentType { get; set; } = string.Empty;
         public string ETag { get; set; } = string.Empty;
         public DateTime UpdatedAt { get; set; }
+    }
+
+    public class AccountMentorDto
+    {
+        public string MentorId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public bool AllowJournalAccess { get; set; }
     }
 }

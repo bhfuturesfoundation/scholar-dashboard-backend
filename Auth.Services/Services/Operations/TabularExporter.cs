@@ -134,7 +134,7 @@ namespace Auth.Services.Services.Operations
             _ => value.ToString() ?? string.Empty
         };
 
-        private static string CsvEscape(string value)
+        public static string CsvEscape(string value)
         {
             if (string.IsNullOrEmpty(value)) return string.Empty;
 

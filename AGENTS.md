@@ -64,7 +64,12 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together
 ### Data and privacy
 - Journals are personal reflections written in confidence. Only the scholar, staff in
   `AppRoles.JournalOversight`, and a mentor the scholar has allowed may read them.
-- People are deactivated (`IsActive = false`), never deleted.
+- People leaving are deactivated (`IsActive = false`). Permanent deletion exists only through
+  `AdminAccountService.DeleteAccountsAsync`, which refuses active people (other than Alumni or
+  Withdrawn scholars), admins and the caller, and audits `Admin.AccountDeleted`. Do not add
+  other delete paths.
+- Mentors live in `MentorAssignments` (at most `MentorAssignment.MaxMentorsPerScholar`), and
+  journal access is per assignment. Check it with `CanMentorAccessJournalAsync`.
 - Use `UserManager` for anything touching email, user name, password or lockout, so the
   normalised columns and security stamp stay correct.
 - To end someone's sessions use `IAccountService.RevokeSessionsAsync`; it also invalidates

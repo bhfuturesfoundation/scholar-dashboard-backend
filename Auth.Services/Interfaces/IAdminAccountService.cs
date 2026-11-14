@@ -39,6 +39,15 @@ namespace Auth.Services.Interfaces
         Task<TemporaryPasswordDto> SetTemporaryPasswordAsync(
             string adminId, string userId, string? ipAddress = null, CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Permanently deletes accounts and everything they wrote: journals, goals, kudos,
+        /// notifications, mentor links. Only for accounts that are already deactivated, or
+        /// alumni and withdrawn scholars, and never for an admin or the caller. Accounts that
+        /// don't qualify are skipped with a reason rather than failing the whole request.
+        /// </summary>
+        Task<DeleteAccountsResultDto> DeleteAccountsAsync(
+            string adminId, IReadOnlyCollection<string> userIds, string? ipAddress = null, CancellationToken cancellationToken = default);
+
         /// <summary>Ends every session on every device. Returns how many were live.</summary>
         Task<int> SignOutEverywhereAsync(
             string adminId, string userId, string? ipAddress = null, CancellationToken cancellationToken = default);

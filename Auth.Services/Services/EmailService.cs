@@ -1,5 +1,7 @@
-﻿// Auth.Services/Services/EmailService.cs
+// Auth.Services/Services/EmailService.cs
 using Auth.Models.DTOs;
+using Auth.Models.DTOs.Email;
+using Auth.Services.Interfaces.Email;
 using Auth.Services.Interfaces;
 using Auth.Services.Settings;
 using Microsoft.Extensions.Logging;
@@ -14,46 +16,39 @@ namespace Auth.Services.Services
         private readonly SMTPSettings _smtpSettings;
         private readonly ILogger<EmailService> _logger;
         private readonly IMessageBrokerService _messageBroker;
+        private readonly IEmailDispatcher _dispatcher;
         private const string EmailQueue = "email_queue";
         private const string ConfirmationEmailQueue = "confirmation_email_queue";
 
         public EmailService(
             IOptions<SMTPSettings> smtpSettings,
             ILogger<EmailService> logger,
-            IMessageBrokerService messageBroker)
+            IMessageBrokerService messageBroker,
+            IEmailDispatcher dispatcher)
         {
             _smtpSettings = smtpSettings.Value;
             _logger = logger;
             _messageBroker = messageBroker;
+            _dispatcher = dispatcher;
         }
 
+        /// <summary>
+        /// Through the shared dispatcher, so these emails use the configured provider and its
+        /// fallback, suppression list and sandbox redirect, instead of a raw SMTP connection.
+        /// </summary>
         public async Task SendEmailAsync(string to, string subject, string htmlBody)
         {
-            try
+            var result = await _dispatcher.SendAsync(new OutboundEmail
             {
-                var message = new MailMessage
-                {
-                    From = new MailAddress(_smtpSettings.FromEmail, _smtpSettings.FromName),
-                    Subject = subject,
-                    Body = htmlBody,
-                    IsBodyHtml = true
-                };
+                ToEmail = to,
+                Subject = subject,
+                HtmlBody = htmlBody,
+                Tag = "account"
+            });
 
-                message.To.Add(new MailAddress(to));
-
-                using var client = new SmtpClient(_smtpSettings.Host, _smtpSettings.Port)
-                {
-                    Credentials = new NetworkCredential(_smtpSettings.Username, _smtpSettings.Password),
-                    EnableSsl = _smtpSettings.EnableSsl
-                };
-
-                await client.SendMailAsync(message);
-                _logger.LogInformation("Email sent successfully to {Email}", to);
-            }
-            catch (Exception ex)
+            if (!result.Success)
             {
-                _logger.LogError(ex, "Error sending email to {Email}", to);
-                throw;
+                _logger.LogError("Email to {Email} failed via {Provider}: {Error}", to, result.Provider, result.Error);
             }
         }
 
@@ -97,8 +92,14 @@ namespace Auth.Services.Services
                 HtmlBody = htmlBody
             };
 
-            _messageBroker.PublishEmailMessage(EmailQueue, message);
-            _logger.LogInformation("Email queued for {Email}", to);
+            if (_messageBroker.DeliversMessages)
+            {
+                _messageBroker.PublishEmailMessage(EmailQueue, message);
+                _logger.LogInformation("Email queued for {Email}", to);
+                return;
+            }
+
+            _ = Task.Run(() => SendEmailAsync(to, subject, htmlBody));
         }
 
         public void QueueEmailConfirmationAsync(string email, string confirmationLink)
@@ -109,8 +110,16 @@ namespace Auth.Services.Services
                 ConfirmationLink = confirmationLink
             };
 
-            _messageBroker.PublishEmailMessage(ConfirmationEmailQueue, message);
-            _logger.LogInformation("Confirmation email queued for {Email}", email);
+            if (_messageBroker.DeliversMessages)
+            {
+                _messageBroker.PublishEmailMessage(ConfirmationEmailQueue, message);
+                _logger.LogInformation("Confirmation email queued for {Email}", email);
+                return;
+            }
+
+            // No broker: send in the background rather than dropping it, so RabbitMQ is an
+            // optional extra and not something email silently depends on.
+            _ = Task.Run(() => SendEmailConfirmationAsync(email, confirmationLink));
         }
 
         public void QueuePasswordResetLinkAsync(string email, string resetLink)

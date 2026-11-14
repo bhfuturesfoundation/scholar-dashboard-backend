@@ -1,4 +1,5 @@
-﻿using Auth.Models.DTOs;
+﻿using Auth.Models.Constants;
+using Auth.Models.DTOs;
 using Auth.Models.Entities;
 using Auth.Models.Exceptions;
 using Auth.Models.Request;
@@ -6,21 +7,35 @@ using Auth.Models.Response;
 using Auth.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace Auth.API.Controllers
 {
     [Route("api/skills")]
     [ApiController]
+    [Authorize]
     public class SkillController : ControllerBase
     {
         private readonly ISkillService _skillService;
+        private readonly IMentorMenteeService _mentors;
         private readonly ILogger<SkillController> _logger;
 
-        public SkillController(ISkillService skillService, ILogger<SkillController> logger)
+        public SkillController(ISkillService skillService, IMentorMenteeService mentors, ILogger<SkillController> logger)
         {
             _skillService = skillService;
+            _mentors = mentors;
             _logger = logger;
         }
+
+        private string CallerId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        private bool IsStaff => User.IsInRole(AppRoles.Admin) || User.IsInRole(AppRoles.ProgramManager);
+
+        /// <summary>A scholar's goals may be changed by the scholar and by staff.</summary>
+        private bool CanEdit(string scholarId) => scholarId == CallerId || IsStaff;
+
+        /// <summary>…and read by those plus the scholar's mentors.</summary>
+        private async Task<bool> CanReadAsync(string scholarId) =>
+            CanEdit(scholarId) || await _mentors.IsMenteeOfMentorAsync(scholarId, CallerId);
 
         /// <summary>
         /// Get all skills for a scholar (active and inactive).
@@ -28,6 +43,8 @@ namespace Auth.API.Controllers
         [HttpGet("{scholarId}")]
         public async Task<ActionResult<ApiResponse<IEnumerable<ScholarSkillDto>>>> GetSkills(string scholarId)
         {
+            if (!await CanReadAsync(scholarId)) return Forbid();
+
             try
             {
                 var skills = await _skillService.GetSkillsAsync(scholarId);
@@ -54,6 +71,8 @@ namespace Auth.API.Controllers
             int slot,
             [FromBody] AddSkillRequest request)
         {
+            if (!CanEdit(scholarId)) return Forbid();
+
             if (request == null)
                 return BadRequest(ApiResponse<ScholarSkillDto>.ErrorResponse("Request body cannot be null"));
 
@@ -83,6 +102,10 @@ namespace Auth.API.Controllers
         [HttpPatch("{skillId}/toggle")]
         public async Task<ActionResult<ApiResponse<bool>>> ToggleSkillStatus(int skillId)
         {
+            var ownerId = await _skillService.GetOwnerIdAsync(skillId);
+            if (ownerId is null) return NotFound(ApiResponse<bool>.ErrorResponse("Skill not found"));
+            if (!CanEdit(ownerId)) return Forbid();
+
             try
             {
                 await _skillService.ToggleSkillStatusAsync(skillId);

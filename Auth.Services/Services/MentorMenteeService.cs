@@ -1,6 +1,7 @@
-﻿using Auth.Models.Data;
+using Auth.Models.Data;
 using Auth.Models.DTOs;
 using Auth.Models.Entities;
+using Auth.Models.Entities.Scholars;
 using Auth.Services.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +9,11 @@ using Microsoft.Extensions.Logging;
 
 namespace Auth.Services.Services
 {
+    /// <summary>
+    /// Mentor ↔ scholar relationships as seen by the two people in them. A scholar can have
+    /// several mentors and grants journal access to each one separately; see
+    /// <see cref="MentorAssignment"/>.
+    /// </summary>
     public class MentorMenteeService : IMentorMenteeService
     {
         private readonly ApplicationDbContext _context;
@@ -33,21 +39,13 @@ namespace Auth.Services.Services
                 return null;
             }
 
-            var isMentor = await _userManager.IsInRoleAsync(mentor, "Mentor");
-            if (!isMentor)
+            if (!await _userManager.IsInRoleAsync(mentor, "Mentor"))
             {
                 _logger.LogWarning("User {MentorId} is not a mentor", mentorId);
                 return null;
             }
 
-            return new MentorDto
-            {
-                MentorId = mentor.Id,
-                MentorEmail = mentor.Email,
-                MentorName = $"{mentor.FirstName} {mentor.LastName}",
-                FirstName = mentor.FirstName,
-                LastName = mentor.LastName
-            };
+            return ToMentorDto(mentor);
         }
 
         public async Task<MentorDto> GetMentorByEmailAsync(string mentorEmail)
@@ -64,24 +62,23 @@ namespace Auth.Services.Services
 
         public async Task<List<MenteeDto>> GetMenteesByMentorIdAsync(string mentorId)
         {
-            var mentees = await _context.Users
-                .Where(u => u.MentorId == mentorId && u.IsActive)
-                .Select(u => new MenteeDto
+            return await _context.MentorAssignments
+                .AsNoTracking()
+                .Where(a => a.MentorId == mentorId && a.Scholar!.IsActive)
+                .Select(a => new MenteeDto
                 {
-                    MenteeId = u.Id,
-                    MenteeEmail = u.Email,
-                    MenteeName = $"{u.FirstName} {u.LastName}",
-                    FirstName = u.FirstName,
-                    LastName = u.LastName,
-                    Title = u.Title,
-                    AllowMentorJournalAccess = u.AllowMentorJournalAccess
+                    MenteeId = a.ScholarId,
+                    MenteeEmail = a.Scholar!.Email,
+                    MenteeName = a.Scholar.FirstName + " " + a.Scholar.LastName,
+                    FirstName = a.Scholar.FirstName,
+                    LastName = a.Scholar.LastName,
+                    Title = a.Scholar.Title,
+                    // Whether the scholar shares with *this* mentor, not with any mentor.
+                    AllowMentorJournalAccess = a.AllowJournalAccess
                 })
                 .OrderBy(m => m.FirstName)
                 .ThenBy(m => m.LastName)
                 .ToListAsync();
-
-            _logger.LogInformation("Found {Count} mentees for mentor {MentorId}", mentees.Count, mentorId);
-            return mentees;
         }
 
         public async Task<List<MenteeDto>> GetMenteesByMentorEmailAsync(string mentorEmail)
@@ -99,34 +96,24 @@ namespace Auth.Services.Services
         public async Task<MentorWithMenteesDto> GetMentorWithMenteesAsync(string mentorId)
         {
             var mentor = await GetMentorByIdAsync(mentorId);
-            if (mentor == null)
-            {
-                return null;
-            }
-
-            var mentees = await GetMenteesByMentorIdAsync(mentorId);
+            if (mentor == null) return null;
 
             return new MentorWithMenteesDto
             {
                 Mentor = mentor,
-                Mentees = mentees
+                Mentees = await GetMenteesByMentorIdAsync(mentorId)
             };
         }
 
         public async Task<MentorWithMenteesDto> GetMentorWithMenteesByEmailAsync(string mentorEmail)
         {
             var mentor = await GetMentorByEmailAsync(mentorEmail);
-            if (mentor == null)
-            {
-                return null;
-            }
-
-            var mentees = await GetMenteesByMentorEmailAsync(mentorEmail);
+            if (mentor == null) return null;
 
             return new MentorWithMenteesDto
             {
                 Mentor = mentor,
-                Mentees = mentees
+                Mentees = await GetMenteesByMentorIdAsync(mentor.MentorId)
             };
         }
 
@@ -150,20 +137,9 @@ namespace Auth.Services.Services
                 })
                 .ToListAsync();
 
-            _logger.LogInformation("Found {Count} journal submissions for mentee {MenteeId}", submissions.Count, menteeId);
-
             return new MenteeJournalDto
             {
-                Mentee = new MenteeDto
-                {
-                    MenteeId = mentee.Id,
-                    MenteeEmail = mentee.Email,
-                    MenteeName = $"{mentee.FirstName} {mentee.LastName}",
-                    FirstName = mentee.FirstName,
-                    LastName = mentee.LastName,
-                    Title = mentee.Title,
-                    AllowMentorJournalAccess = mentee.AllowMentorJournalAccess
-                },
+                Mentee = await ToMenteeDtoAsync(mentee),
                 Journals = submissions
             };
         }
@@ -210,21 +186,9 @@ namespace Auth.Services.Services
                 };
             }).ToList();
 
-            _logger.LogInformation("Fetched {Count} questions for mentee {MenteeId} in {MonthYear}, submitted: {Submitted}",
-                questionDtos.Count, menteeId, monthYear, submission?.Submitted ?? false);
-
             return new MenteeJournalDetailDto
             {
-                Mentee = new MenteeDto
-                {
-                    MenteeId = mentee.Id,
-                    MenteeEmail = mentee.Email,
-                    MenteeName = $"{mentee.FirstName} {mentee.LastName}",
-                    FirstName = mentee.FirstName,
-                    LastName = mentee.LastName,
-                    Title = mentee.Title,
-                    AllowMentorJournalAccess = mentee.AllowMentorJournalAccess
-                },
+                Mentee = await ToMenteeDtoAsync(mentee),
                 MonthYear = monthYear,
                 Questions = questionDtos,
                 Submitted = submission?.Submitted ?? false,
@@ -237,80 +201,46 @@ namespace Auth.Services.Services
             var mentees = await GetMenteesByMentorIdAsync(mentorId);
             var result = new List<MenteeJournalDto>();
 
-            foreach (var mentee in mentees)
+            foreach (var mentee in mentees.Where(m => m.AllowMentorJournalAccess))
             {
-                // Only include journals if mentee has granted access
-                if (mentee.AllowMentorJournalAccess)
-                {
-                    var menteeJournals = await GetMenteeJournalsAsync(mentee.MenteeId);
-                    if (menteeJournals != null)
-                    {
-                        result.Add(menteeJournals);
-                    }
-                }
+                var menteeJournals = await GetMenteeJournalsAsync(mentee.MenteeId);
+                if (menteeJournals == null) continue;
+
+                menteeJournals.Mentee.AllowMentorJournalAccess = true;
+                result.Add(menteeJournals);
             }
 
-            _logger.LogInformation("Retrieved journals for {Count} mentees (with permission) of mentor {MentorId}",
-                result.Count, mentorId);
             return result;
         }
 
         public async Task<bool> IsMentorAsync(string userId)
         {
             var user = await _userManager.FindByIdAsync(userId);
-            if (user == null)
-            {
-                return false;
-            }
-
-            return await _userManager.IsInRoleAsync(user, "Mentor");
+            return user != null && await _userManager.IsInRoleAsync(user, "Mentor");
         }
 
-        public async Task<bool> IsMenteeOfMentorAsync(string menteeId, string mentorId)
+        public Task<bool> IsMenteeOfMentorAsync(string menteeId, string mentorId) =>
+            _context.MentorAssignments.AnyAsync(a => a.ScholarId == menteeId && a.MentorId == mentorId);
+
+        /// <summary>The first mentor assigned. Kept for screens that show a single mentor.</summary>
+        public async Task<MentorDto> GetMentorByMenteeIdAsync(string menteeId) =>
+            (await GetMentorsByMenteeIdAsync(menteeId)).FirstOrDefault()?.Mentor;
+
+        public async Task<List<MentorAccessDto>> GetMentorsByMenteeIdAsync(string menteeId)
         {
-            var mentee = await _userManager.FindByIdAsync(menteeId);
-            if (mentee == null)
+            var assignments = await _context.MentorAssignments
+                .AsNoTracking()
+                .Include(a => a.Mentor)
+                .Where(a => a.ScholarId == menteeId)
+                .OrderBy(a => a.AssignedAt)
+                .ThenBy(a => a.Id)
+                .ToListAsync();
+
+            return assignments.Select(a => new MentorAccessDto
             {
-                return false;
-            }
-
-            return mentee.MentorId == mentorId;
-        }
-
-        public async Task<MentorDto> GetMentorByMenteeIdAsync(string menteeId)
-        {
-            var mentee = await _userManager.FindByIdAsync(menteeId);
-            if (mentee == null)
-            {
-                _logger.LogWarning("Mentee not found with ID: {MenteeId}", menteeId);
-                return null;
-            }
-
-            if (string.IsNullOrEmpty(mentee.MentorId))
-            {
-                _logger.LogInformation("Mentee {MenteeId} does not have an assigned mentor", menteeId);
-                return null;
-            }
-
-            var mentor = await _userManager.FindByIdAsync(mentee.MentorId);
-            if (mentor == null)
-            {
-                _logger.LogWarning("Mentor user with ID {MentorId} not found for mentee {MenteeId}",
-                    mentee.MentorId, menteeId);
-                return null;
-            }
-
-            _logger.LogInformation("Found mentor {MentorId} ({MentorName}) for mentee {MenteeId}",
-                mentor.Id, $"{mentor.FirstName} {mentor.LastName}", menteeId);
-
-            return new MentorDto
-            {
-                MentorId = mentor.Id,
-                MentorEmail = mentor.Email,
-                MentorName = $"{mentor.FirstName} {mentor.LastName}",
-                FirstName = mentor.FirstName,
-                LastName = mentor.LastName
-            };
+                Mentor = ToMentorDto(a.Mentor!),
+                AllowJournalAccess = a.AllowJournalAccess
+            }).ToList();
         }
 
         public async Task<MenteeWithMentorDto> GetMenteeWithMentorAsync(string menteeId)
@@ -322,40 +252,15 @@ namespace Auth.Services.Services
                 return null;
             }
 
-            var menteeDto = new MenteeDto
-            {
-                MenteeId = mentee.Id,
-                MenteeEmail = mentee.Email,
-                MenteeName = $"{mentee.FirstName} {mentee.LastName}",
-                FirstName = mentee.FirstName,
-                LastName = mentee.LastName,
-                Title = mentee.Title,
-                AllowMentorJournalAccess = mentee.AllowMentorJournalAccess
-            };
-
-            MentorDto mentorDto = null;
-            if (!string.IsNullOrEmpty(mentee.MentorId))
-            {
-                mentorDto = await GetMentorByMenteeIdAsync(mentee.Id);
-            }
-
             return new MenteeWithMentorDto
             {
-                Mentee = menteeDto,
-                Mentor = mentorDto
+                Mentee = await ToMenteeDtoAsync(mentee),
+                Mentor = await GetMentorByMenteeIdAsync(menteeId)
             };
         }
 
-        public async Task<bool> IsMenteeAsync(string userId)
-        {
-            var user = await _userManager.FindByIdAsync(userId);
-            if (user == null)
-            {
-                return false;
-            }
-
-            return !string.IsNullOrEmpty(user.MentorId);
-        }
+        public Task<bool> IsMenteeAsync(string userId) =>
+            _context.MentorAssignments.AnyAsync(a => a.ScholarId == userId);
 
         public async Task<MenteeDto> GetMenteeByIdAsync(string menteeId)
         {
@@ -366,79 +271,59 @@ namespace Auth.Services.Services
                 return null;
             }
 
-            return new MenteeDto
-            {
-                MenteeId = mentee.Id,
-                MenteeEmail = mentee.Email,
-                MenteeName = $"{mentee.FirstName} {mentee.LastName}",
-                FirstName = mentee.FirstName,
-                LastName = mentee.LastName,
-                Title = mentee.Title,
-                AllowMentorJournalAccess = mentee.AllowMentorJournalAccess
-            };
+            return await ToMenteeDtoAsync(mentee);
         }
 
         // ==================== PERMISSION METHODS ====================
 
-        public async Task<bool> HasMentorJournalAccessAsync(string menteeId)
-        {
-            var mentee = await _userManager.FindByIdAsync(menteeId);
-            if (mentee == null)
-            {
-                _logger.LogWarning("Mentee not found with ID: {MenteeId}", menteeId);
-                return false;
-            }
+        /// <summary>Whether the scholar shares their journal with at least one mentor.</summary>
+        public Task<bool> HasMentorJournalAccessAsync(string menteeId) =>
+            _context.MentorAssignments.AnyAsync(a => a.ScholarId == menteeId && a.AllowJournalAccess);
 
-            return mentee.AllowMentorJournalAccess;
+        /// <summary>
+        /// Grants or revokes access for one mentor, or for every mentor when
+        /// <paramref name="mentorId"/> is null. False when that mentor is not assigned.
+        /// </summary>
+        public async Task<bool> UpdateMentorJournalAccessAsync(string menteeId, bool allowAccess, string? mentorId = null)
+        {
+            var assignments = await _context.MentorAssignments
+                .Where(a => a.ScholarId == menteeId && (mentorId == null || a.MentorId == mentorId))
+                .ToListAsync();
+
+            if (assignments.Count == 0) return false;
+
+            foreach (var assignment in assignments) assignment.AllowJournalAccess = allowAccess;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Mentee {MenteeId} {Action} journal access for {Count} mentor(s)",
+                menteeId, allowAccess ? "granted" : "revoked", assignments.Count);
+            return true;
         }
 
-        public async Task<bool> UpdateMentorJournalAccessAsync(string menteeId, bool allowAccess)
+        public Task<bool> CanMentorAccessJournalAsync(string mentorId, string menteeId) =>
+            _context.MentorAssignments.AnyAsync(a =>
+                a.ScholarId == menteeId && a.MentorId == mentorId && a.AllowJournalAccess);
+
+        // ==================== HELPERS ====================
+
+        private static MentorDto ToMentorDto(User mentor) => new()
         {
-            var mentee = await _userManager.FindByIdAsync(menteeId);
-            if (mentee == null)
-            {
-                _logger.LogWarning("Mentee not found with ID: {MenteeId}", menteeId);
-                return false;
-            }
+            MentorId = mentor.Id,
+            MentorEmail = mentor.Email,
+            MentorName = $"{mentor.FirstName} {mentor.LastName}".Trim(),
+            FirstName = mentor.FirstName,
+            LastName = mentor.LastName
+        };
 
-            mentee.AllowMentorJournalAccess = allowAccess;
-            mentee.UpdatedAt = DateTime.UtcNow;
-
-            var result = await _userManager.UpdateAsync(mentee);
-
-            if (result.Succeeded)
-            {
-                _logger.LogInformation("Mentee {MenteeId} {Action} mentor journal access",
-                    menteeId, allowAccess ? "granted" : "revoked");
-                return true;
-            }
-
-            _logger.LogError("Failed to update journal access for mentee {MenteeId}: {Errors}",
-                menteeId, string.Join(", ", result.Errors.Select(e => e.Description)));
-            return false;
-        }
-
-        public async Task<bool> CanMentorAccessJournalAsync(string mentorId, string menteeId)
+        private async Task<MenteeDto> ToMenteeDtoAsync(User mentee) => new()
         {
-            // First verify the mentor-mentee relationship
-            var isMenteeOfMentor = await IsMenteeOfMentorAsync(menteeId, mentorId);
-            if (!isMenteeOfMentor)
-            {
-                _logger.LogWarning("Mentee {MenteeId} does not belong to mentor {MentorId}",
-                    menteeId, mentorId);
-                return false;
-            }
-
-            // Then check if access is granted
-            var hasAccess = await HasMentorJournalAccessAsync(menteeId);
-
-            if (!hasAccess)
-            {
-                _logger.LogInformation("Mentor {MentorId} does not have journal access for mentee {MenteeId}",
-                    mentorId, menteeId);
-            }
-
-            return hasAccess;
-        }
+            MenteeId = mentee.Id,
+            MenteeEmail = mentee.Email,
+            MenteeName = $"{mentee.FirstName} {mentee.LastName}".Trim(),
+            FirstName = mentee.FirstName,
+            LastName = mentee.LastName,
+            Title = mentee.Title,
+            AllowMentorJournalAccess = await HasMentorJournalAccessAsync(mentee.Id)
+        };
     }
 }

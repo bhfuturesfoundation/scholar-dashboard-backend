@@ -65,6 +65,9 @@ namespace Auth.Services.Services.Operations
                 "Expected token issuer.", "Tokens are rejected as invalid."),
             new("JWT_AUDIENCE", Authentication, EnvVarImportance.Required,
                 "Expected token audience.", "Tokens are rejected as invalid."),
+            new("JWT_EXPIRATION_MINUTES", Authentication, EnvVarImportance.Optional,
+                "How long an access token lasts, 5 to 1440 minutes. Shorter limits a stolen token; people stay signed in either way through the refresh cookie.",
+                "Defaults to 60 minutes."),
 
             new("FRONTEND_BASE_URL", Authentication, EnvVarImportance.Recommended,
                 "Public address of the web app, e.g. https://scholar-dashboard-frontend.vercel.app. Used in password-reset and welcome links and after Google/GitHub sign-in.",
@@ -132,11 +135,11 @@ namespace Auth.Services.Services.Operations
 
             // ── Infrastructure ────────────────────────────────────────────────
             new("REDIS_URL", Infrastructure, EnvVarImportance.Optional,
-                "Redis backplane for SignalR.",
-                "Hubs run in-memory, so real-time features break across multiple instances."),
+                "Redis backplane for SignalR. Only needed with more than one API instance.",
+                "Hubs run in-memory, which is correct for a single instance."),
             new("RABBITMQ_URL", Infrastructure, EnvVarImportance.Optional,
-                "Message broker for queued email.",
-                "Queued email falls back to the no-op broker and is not delivered."),
+                "Message broker for queued email. Not needed: without it, email is sent directly in the background.",
+                "Email is sent directly by the API instead of through the queue."),
             new("ASPNETCORE_ENVIRONMENT", Infrastructure, EnvVarImportance.Recommended,
                 "Development or Production. Controls Swagger and detailed errors.",
                 "Defaults to Production."),

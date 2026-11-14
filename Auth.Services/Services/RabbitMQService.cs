@@ -9,6 +9,26 @@ namespace Auth.Services.Services
 {
     public class RabbitMQService : IMessageBrokerService, IDisposable
     {
+        /// <summary>
+        /// True only while a broker connection can be made, so email falls back to direct
+        /// sending instead of being published into nothing when the broker is down.
+        /// </summary>
+        public bool DeliversMessages
+        {
+            get
+            {
+                try
+                {
+                    EnsureConnected();
+                    return _channel != null;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
         private readonly string _hostName;
         private readonly string _username;
         private readonly string _password;

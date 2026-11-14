@@ -20,6 +20,13 @@
         public bool AllowMentorJournalAccess { get; set; }
     }
 
+    /// <summary>One of a scholar's mentors, and whether that mentor may read the journal.</summary>
+    public class MentorAccessDto
+    {
+        public MentorDto Mentor { get; set; }
+        public bool AllowJournalAccess { get; set; }
+    }
+
     public class MentorWithMenteesDto
     {
         public MentorDto Mentor { get; set; }

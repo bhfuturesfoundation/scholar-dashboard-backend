@@ -3,6 +3,7 @@ using Auth.Models.Entities.Email;
 using Auth.Models.Entities.Engagement;
 using Auth.Models.Entities.FLS;
 using Auth.Models.Entities.Games;
+using Auth.Models.Entities.Resources;
 using Auth.Models.Entities.Settings;
 using Auth.Models.Entities.Mailing;
 using Auth.Models.Entities.News;
@@ -60,6 +61,9 @@ namespace Auth.Models.Data
         /// <summary>Audit trail of database backups. See IBackupService.</summary>
         public DbSet<BackupRecord> BackupRecords { get; set; }
         public DbSet<AppSetting> AppSettings { get; set; }
+        public DbSet<MentorAssignment> MentorAssignments { get; set; }
+        public DbSet<ResourceDocument> ResourceDocuments { get; set; }
+        public DbSet<ResourceDocumentFile> ResourceDocumentFiles { get; set; }
 
         // Engagement
         public DbSet<Achievement> Achievements { get; set; }
@@ -150,15 +154,37 @@ namespace Auth.Models.Data
                 .HasForeignKey(rt => rt.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            builder.Entity<User>()
-                .HasOne(u => u.Mentor)
-                .WithMany(u => u.Scholars)
-                .HasForeignKey(u => u.MentorId)
-                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<ResourceDocument>(document =>
+            {
+                document.Property(d => d.Title).HasMaxLength(200);
+                document.Property(d => d.Description).HasMaxLength(1000);
+                document.Property(d => d.FileName).HasMaxLength(255);
+                document.Property(d => d.ContentType).HasMaxLength(150);
+                document.Property(d => d.ExternalPath).HasMaxLength(500);
+                document.HasIndex(d => new { d.IsPublished, d.SortOrder });
+                document.HasOne(d => d.File)
+                    .WithOne(f => f.Document)
+                    .HasForeignKey<ResourceDocumentFile>(f => f.DocumentId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
 
-            builder.Entity<User>()
-                .HasIndex(u => u.MentorId)
-                .IsUnique(false);
+            builder.Entity<ResourceDocumentFile>().HasKey(f => f.DocumentId);
+
+            builder.Entity<MentorAssignment>(assignment =>
+            {
+                assignment.HasOne(a => a.Scholar)
+                    .WithMany(u => u.MentorAssignments)
+                    .HasForeignKey(a => a.ScholarId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                assignment.HasOne(a => a.Mentor)
+                    .WithMany(u => u.MenteeAssignments)
+                    .HasForeignKey(a => a.MentorId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                assignment.HasIndex(a => new { a.ScholarId, a.MentorId }).IsUnique();
+                assignment.HasIndex(a => a.MentorId);
+            });
 
             // FLS: SpeakerProfile → User (one-to-one)
             builder.Entity<SpeakerProfile>()

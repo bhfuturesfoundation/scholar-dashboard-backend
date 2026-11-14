@@ -1,4 +1,5 @@
 using Auth.Models.Constants;
+using Auth.Models.DTOs.FLS;
 using Auth.Models.Enums.FLS;
 using Auth.Models.Request.FLS;
 using Auth.Models.Response;
@@ -31,6 +32,19 @@ namespace Auth.API.Controllers.FLS
         private string GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
 
         /// <summary>
+        /// FLS staff see everything; a speaker sees documents for everyone plus the ones
+        /// addressed to them, the same set <see cref="GetMy"/> lists.
+        /// </summary>
+        private async Task<bool> CanSeeAsync(FLSDocumentDto doc)
+        {
+            if (User.IsInRole(AppRoles.Admin) || User.IsInRole(AppRoles.FLSAdmin)) return true;
+            if (doc.TargetSpeakerProfileId is null) return true;
+
+            var profile = await _speakerService.GetProfileByUserIdAsync(GetUserId());
+            return profile is not null && profile.Id == doc.TargetSpeakerProfileId;
+        }
+
+        /// <summary>
         /// Get documents visible to the current speaker (global + speaker-specific).
         /// </summary>
         [Authorize(Roles = AppRoles.FLSSpeaker)]
@@ -59,11 +73,12 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Get document by ID.
         /// </summary>
+        [Authorize(Roles = AppRoles.FlsSpeakerOrManagement)]
         [HttpGet("{documentId:int}")]
         public async Task<IActionResult> GetById(int documentId)
         {
             var doc = await _documentService.GetDocumentByIdAsync(documentId);
-            if (doc == null)
+            if (doc == null || !await CanSeeAsync(doc))
                 return NotFound(ApiResponse<object>.ErrorResponse("Document not found."));
 
             return Ok(ApiResponse<object>.SuccessResponse(doc, ""));
@@ -72,9 +87,14 @@ namespace Auth.API.Controllers.FLS
         /// <summary>
         /// Download document file.
         /// </summary>
+        [Authorize(Roles = AppRoles.FlsSpeakerOrManagement)]
         [HttpGet("{documentId:int}/download")]
         public async Task<IActionResult> Download(int documentId)
         {
+            var doc = await _documentService.GetDocumentByIdAsync(documentId);
+            if (doc == null || !await CanSeeAsync(doc))
+                return NotFound(ApiResponse<object>.ErrorResponse("Document not found."));
+
             var (fileBytes, contentType, fileName) = await _documentService.DownloadDocumentAsync(documentId);
             return File(fileBytes, contentType, fileName);
         }

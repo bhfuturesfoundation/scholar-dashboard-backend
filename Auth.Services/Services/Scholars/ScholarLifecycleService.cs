@@ -24,7 +24,22 @@ namespace Auth.Services.Services.Scholars
             ["lastname"] = new[] { "last name", "lastname", "surname", "family name", "prezime" },
             ["fullname"] = new[] { "name", "full name", "fullname", "ime i prezime", "scholar" },
             ["email"] = new[] { "email", "e mail", "mail", "email address", "eposta", "e posta" },
-            ["title"] = new[] { "title", "status", "scholar status", "note", "napomena" },
+            ["status"] = new[] { "status", "scholar status", "category", "kategorija" },
+            ["generation"] = new[] { "generation", "generacija", "cohort", "generation name" },
+            ["mentor1"] = new[]
+            {
+                "mentor", "mentor email", "mentor 1 email", "mentor1 email", "first mentor email",
+                "email mentora", "email mentora 1"
+            },
+            ["mentor2"] = new[] { "mentor 2 email", "mentor2 email", "second mentor email", "email mentora 2" },
+            ["goal1"] = new[] { "personal goal", "personal development goal", "licni cilj", "goal personal" },
+            ["rating1"] = new[] { "personal satisfaction", "personal goal satisfaction", "zadovoljstvo licni cilj" },
+            ["goal2"] = new[] { "professional goal", "professional development goal", "profesionalni cilj", "goal professional" },
+            ["rating2"] = new[] { "professional satisfaction", "professional goal satisfaction", "zadovoljstvo profesionalni cilj" },
+            ["goal3"] = new[] { "teamwork goal", "leadership goal", "teamwork leadership goal", "timski cilj", "goal teamwork" },
+            ["rating3"] = new[] { "teamwork satisfaction", "teamwork goal satisfaction", "leadership satisfaction", "zadovoljstvo timski cilj" },
+            ["goal4"] = new[] { "knowledge goal", "knowledge skill goal", "cilj znanja", "goal knowledge" },
+            ["rating4"] = new[] { "knowledge satisfaction", "knowledge goal satisfaction", "zadovoljstvo cilj znanja" },
         };
 
         private const int MaxReportedIssues = 200;
@@ -454,14 +469,28 @@ namespace Auth.Services.Services.Scholars
 
             result.GenerationName = generation?.Name;
 
-            // Existing addresses fetched once. A per-row lookup over a few hundred rows is
-            // what turns a two-second import into a minute of round trips.
-            var existing = await _context.Users
-                .Where(u => u.Email != null)
-                .Select(u => u.Email!.ToLower())
-                .ToListAsync(cancellationToken);
+            var generationsByName = (await _context.ScholarGenerations.ToListAsync(cancellationToken))
+                .GroupBy(g => g.Name.Trim().ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
 
-            var known = new HashSet<string>(existing, StringComparer.Ordinal);
+            // Every account fetched once, keyed by email. A per-row lookup over a few hundred
+            // rows is what turns a two-second import into a minute of round trips.
+            var accounts = await _context.Users
+                .Where(u => u.Email != null)
+                .ToDictionaryAsync(u => u.Email!.ToLower(), cancellationToken);
+
+            var mentorRoleId = await _context.Roles.Where(r => r.Name == "Mentor").Select(r => r.Id).FirstOrDefaultAsync(cancellationToken);
+            var mentorIds = (await _context.UserRoles.Where(ur => ur.RoleId == mentorRoleId).Select(ur => ur.UserId).ToListAsync(cancellationToken))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var scholarRoleId = await _context.Roles.Where(r => r.Name == "User").Select(r => r.Id).FirstOrDefaultAsync(cancellationToken);
+            var scholarIds = (await _context.UserRoles.Where(ur => ur.RoleId == scholarRoleId).Select(ur => ur.UserId).ToListAsync(cancellationToken))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var goalQuestions = await _context.Questions
+                .Where(q => q.IsSkill && q.Active && q.SkillType != null)
+                .ToDictionaryAsync(q => (int)q.SkillType!, q => q.QuestionId, cancellationToken);
+
             var seenInFile = new HashSet<string>(StringComparer.Ordinal);
 
             for (var i = 0; i < rows.Count; i++)
@@ -475,6 +504,7 @@ namespace Auth.Services.Services.Scholars
                 var normalized = email?.ToLowerInvariant();
 
                 var (firstName, lastName) = ResolveName(row, map);
+                var label = $"{firstName} {lastName}".Trim();
 
                 if (string.IsNullOrWhiteSpace(normalized))
                 {
@@ -485,77 +515,180 @@ namespace Auth.Services.Services.Scholars
                 if (!LooksLikeEmail(normalized))
                 {
                     result.FailedCount++;
-                    AddIssue(result, rowNumber, $"{firstName} {lastName}".Trim(), email, "Failed", "Email address is not valid.");
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(firstName))
-                {
-                    result.FailedCount++;
-                    AddIssue(result, rowNumber, null, email, "Failed", "No name column could be read for this row.");
-                    continue;
-                }
-
-                if (known.Contains(normalized))
-                {
-                    result.SkippedCount++;
-                    AddIssue(result, rowNumber, $"{firstName} {lastName}".Trim(), email, "Skipped", "An account with this email already exists.");
+                    AddIssue(result, rowNumber, label, email, "Failed", "Email address is not valid.");
                     continue;
                 }
 
                 if (!seenInFile.Add(normalized))
                 {
                     result.SkippedCount++;
-                    AddIssue(result, rowNumber, $"{firstName} {lastName}".Trim(), email, "Skipped", "Duplicate address within this file.");
+                    AddIssue(result, rowNumber, label, email, "Skipped", "Duplicate address within this file.");
                     continue;
                 }
 
-                var password = TemporaryPassword.Generate();
+                // Per-row status and generation override the options chosen on screen.
+                var statusText = SpreadsheetReader.Value(row, map, "status")?.Trim();
+                var status = options.Status;
+                if (!string.IsNullOrEmpty(statusText))
+                {
+                    if (!Enum.TryParse<ScholarStatus>(statusText, true, out status) || !Enum.IsDefined(status))
+                    {
+                        result.FailedCount++;
+                        AddIssue(result, rowNumber, label, email, "Failed", $"Unknown status \"{statusText}\". Use Junior, Senior or Alumni.");
+                        continue;
+                    }
+                }
+
+                var rowGeneration = generation;
+                var generationText = SpreadsheetReader.Value(row, map, "generation")?.Trim();
+                if (!string.IsNullOrEmpty(generationText))
+                {
+                    if (!generationsByName.TryGetValue(generationText.ToLowerInvariant(), out rowGeneration))
+                    {
+                        result.FailedCount++;
+                        AddIssue(result, rowNumber, label, email, "Failed", $"No generation is called \"{generationText}\". Create it first.");
+                        continue;
+                    }
+                }
+
+                var isExisting = accounts.TryGetValue(normalized, out var user);
+
+                if (isExisting && !options.UpdateExisting)
+                {
+                    result.SkippedCount++;
+                    AddIssue(result, rowNumber, label, email, "Skipped",
+                        "An account with this email already exists. Tick \"Update existing scholars\" to update their goals and mentors.");
+                    continue;
+                }
+
+                if (isExisting && !scholarIds.Contains(user!.Id))
+                {
+                    result.FailedCount++;
+                    AddIssue(result, rowNumber, label, email, "Failed", "This email belongs to an account that is not a scholar.");
+                    continue;
+                }
+
+                if (!isExisting && string.IsNullOrWhiteSpace(firstName))
+                {
+                    result.FailedCount++;
+                    AddIssue(result, rowNumber, null, email, "Failed", "No name column could be read for this row.");
+                    continue;
+                }
+
+                // Mentors are checked before anything is written, so a bad address is reported
+                // without half-importing the row.
+                var mentorProblem = (string?)null;
+                var mentors = new List<User>();
+                foreach (var column in new[] { "mentor1", "mentor2" })
+                {
+                    var mentorEmail = SpreadsheetReader.Value(row, map, column)?.Trim().ToLowerInvariant();
+                    if (string.IsNullOrEmpty(mentorEmail)) continue;
+
+                    if (!accounts.TryGetValue(mentorEmail, out var mentor) || !mentorIds.Contains(mentor.Id))
+                    {
+                        mentorProblem = $"{mentorEmail} is not a mentor account.";
+                        break;
+                    }
+
+                    if (mentors.All(m => m.Id != mentor.Id)) mentors.Add(mentor);
+                }
+
+                if (mentorProblem is not null)
+                {
+                    result.FailedCount++;
+                    AddIssue(result, rowNumber, label, email, "Failed", mentorProblem);
+                    continue;
+                }
+
+                var goals = Enumerable.Range(1, 4)
+                    .Select(slot => (
+                        Slot: slot,
+                        Answer: SpreadsheetReader.Value(row, map, $"goal{slot}")?.Trim(),
+                        Rating: SpreadsheetReader.Value(row, map, $"rating{slot}")?.Trim()))
+                    .Where(g => !string.IsNullOrEmpty(g.Answer))
+                    .ToList();
+
+                var missingQuestion = goals.FirstOrDefault(g => !goalQuestions.ContainsKey(g.Slot));
+                if (missingQuestion.Answer is not null)
+                {
+                    result.FailedCount++;
+                    AddIssue(result, rowNumber, label, email, "Failed",
+                        "There is no active journal question for one of these goal areas. Set the skill type on the questions first.");
+                    continue;
+                }
 
                 if (options.DryRun)
                 {
+                    if (isExisting) result.UpdatedCount++;
+                    else result.CreatedCount++;
+                    result.GoalsSetCount += goals.Count;
+                    result.MentorsAssignedCount += mentors.Count;
+                    continue;
+                }
+
+                if (!isExisting)
+                {
+                    var password = TemporaryPassword.Generate();
+
+                    user = new User
+                    {
+                        UserName = email,
+                        Email = email,
+                        FirstName = firstName,
+                        LastName = lastName,
+                        Title = Describe(status),
+                        ScholarStatus = status,
+                        GenerationId = rowGeneration?.Id,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow,
+                        IsActive = true,
+                        EmailConfirmed = false,
+                        MustChangePassword = true
+                    };
+
+                    var created = await _userManager.CreateAsync(user, password);
+
+                    if (!created.Succeeded)
+                    {
+                        result.FailedCount++;
+                        AddIssue(result, rowNumber, label, email, "Failed",
+                            string.Join("; ", created.Errors.Select(e => e.Description)));
+                        continue;
+                    }
+
+                    await _userManager.AddToRoleAsync(user, "User");
+
+                    accounts[normalized] = user;
                     result.CreatedCount++;
-                    continue;
+
+                    result.Credentials.Add(new CreatedScholarCredentialDto
+                    {
+                        FirstName = firstName!,
+                        LastName = lastName ?? string.Empty,
+                        Email = email!,
+                        TemporaryPassword = password
+                    });
+                }
+                else
+                {
+                    // Only what the sheet actually says: an empty status or generation cell
+                    // leaves the scholar's current value alone.
+                    if (!string.IsNullOrEmpty(statusText))
+                    {
+                        user!.ScholarStatus = status;
+                        user.Title = Describe(status);
+                    }
+
+                    if (!string.IsNullOrEmpty(generationText)) user!.GenerationId = rowGeneration?.Id;
+
+                    user!.UpdatedAt = DateTime.UtcNow;
+                    result.UpdatedCount++;
                 }
 
-                var user = new User
-                {
-                    UserName = email,
-                    Email = email,
-                    FirstName = firstName,
-                    LastName = lastName,
-                    Title = Describe(options.Status),
-                    ScholarStatus = options.Status,
-                    GenerationId = generation?.Id,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                    IsActive = true,
-                    EmailConfirmed = false,
-                    MustChangePassword = true
-                };
+                result.GoalsSetCount += await SetGoalsAsync(user!.Id, goals, goalQuestions, cancellationToken);
+                result.MentorsAssignedCount += await AddMentorsAsync(user.Id, mentors, cancellationToken);
 
-                var created = await _userManager.CreateAsync(user, password);
-
-                if (!created.Succeeded)
-                {
-                    result.FailedCount++;
-                    AddIssue(result, rowNumber, $"{firstName} {lastName}".Trim(), email, "Failed",
-                        string.Join("; ", created.Errors.Select(e => e.Description)));
-                    continue;
-                }
-
-                await _userManager.AddToRoleAsync(user, "User");
-
-                known.Add(normalized);
-                result.CreatedCount++;
-
-                result.Credentials.Add(new CreatedScholarCredentialDto
-                {
-                    FirstName = firstName,
-                    LastName = lastName ?? string.Empty,
-                    Email = email!,
-                    TemporaryPassword = password
-                });
+                await _context.SaveChangesAsync(cancellationToken);
             }
 
             if (!options.DryRun && options.ArchiveCredentials && result.Credentials.Count > 0)
@@ -575,16 +708,104 @@ namespace Auth.Services.Services.Scholars
             return result;
         }
 
+        /// <summary>
+        /// Everything a scholar can be imported with. Only Email and the names are needed for a
+        /// new account; every other column is optional and an empty cell is ignored.
+        /// </summary>
         public ExportTable BuildImportTemplate() => new()
         {
             Name = "Scholars",
-            Headers = new List<string> { "First name", "Last name", "Email" },
+            Headers = new List<string>
+            {
+                "First name", "Last name", "Email", "Status", "Generation",
+                "Mentor 1 email", "Mentor 2 email",
+                "Personal goal", "Personal satisfaction",
+                "Professional goal", "Professional satisfaction",
+                "Teamwork goal", "Teamwork satisfaction",
+                "Knowledge goal", "Knowledge satisfaction"
+            },
             Rows = new List<List<object?>>
             {
-                new() { "Amina", "Hodzic", "amina.hodzic@example.ba" },
-                new() { "Tarik", "Begic", "tarik.begic@example.ba" }
+                new()
+                {
+                    "Amina", "Hodzic", "amina.hodzic@example.ba", "Junior", "",
+                    "mentor.one@example.ba", "",
+                    "Speak up more in team meetings", "2",
+                    "Finish an internship application", "3",
+                    "Lead one volunteering project", "2",
+                    "Complete a data analysis course", "3"
+                },
+                new()
+                {
+                    "Tarik", "Begic", "tarik.begic@example.ba", "Senior", "",
+                    "mentor.one@example.ba", "mentor.two@example.ba",
+                    "", "", "", "", "", "", "", ""
+                }
             }
         };
+
+        /// <summary>
+        /// Writes a scholar's goals: each given area gets a new active goal and the previous one
+        /// in that area is kept but switched off, the same as when a scholar edits it.
+        /// </summary>
+        private async Task<int> SetGoalsAsync(
+            string scholarId,
+            List<(int Slot, string? Answer, string? Rating)> goals,
+            Dictionary<int, int> goalQuestions,
+            CancellationToken cancellationToken)
+        {
+            if (goals.Count == 0) return 0;
+
+            var slots = goals.Select(g => g.Slot).ToList();
+            var current = await _context.Skills
+                .Where(s => s.ScholarId == scholarId && s.Active && slots.Contains(s.Slot))
+                .ToListAsync(cancellationToken);
+
+            foreach (var previous in current) previous.Active = false;
+
+            foreach (var goal in goals)
+            {
+                _context.Skills.Add(new Skill
+                {
+                    ScholarId = scholarId,
+                    QuestionId = goalQuestions[goal.Slot],
+                    Slot = goal.Slot,
+                    SkillAnswer = goal.Answer!,
+                    SatisfactionRating = string.IsNullOrEmpty(goal.Rating) ? null : goal.Rating,
+                    Active = true
+                });
+            }
+
+            return goals.Count;
+        }
+
+        /// <summary>Adds mentors the scholar doesn't have yet, up to the limit. Never removes any.</summary>
+        private async Task<int> AddMentorsAsync(string scholarId, List<User> mentors, CancellationToken cancellationToken)
+        {
+            if (mentors.Count == 0) return 0;
+
+            var current = await _context.MentorAssignments
+                .Where(a => a.ScholarId == scholarId)
+                .Select(a => a.MentorId)
+                .ToListAsync(cancellationToken);
+
+            var added = 0;
+            foreach (var mentor in mentors)
+            {
+                if (current.Contains(mentor.Id) || current.Count >= MentorAssignment.MaxMentorsPerScholar) continue;
+
+                _context.MentorAssignments.Add(new MentorAssignment
+                {
+                    ScholarId = scholarId,
+                    MentorId = mentor.Id,
+                    AssignedAt = DateTime.UtcNow
+                });
+                current.Add(mentor.Id);
+                added++;
+            }
+
+            return added;
+        }
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -683,10 +904,8 @@ namespace Auth.Services.Services.Scholars
 
             return string.Join("\n", lines);
 
-            static string Escape(string value) =>
-                value.Contains(',') || value.Contains('"')
-                    ? $"\"{value.Replace("\"", "\"\"")}\""
-                    : value;
+            // Formula guard included; passwords never start with a symbol, so it can't alter one.
+            static string Escape(string value) => TabularExporter.CsvEscape(value);
         }
 
         private static bool LooksLikeEmail(string email)

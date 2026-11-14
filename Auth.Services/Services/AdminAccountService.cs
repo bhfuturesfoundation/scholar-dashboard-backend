@@ -133,7 +133,7 @@ namespace Auth.Services.Services
             var user = await _context.Users
                 .AsNoTracking()
                 .Include(u => u.Generation)
-                .Include(u => u.Mentor)
+                .Include(u => u.MentorAssignments).ThenInclude(a => a.Mentor)
                 .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
                 ?? throw new NotFoundException("User", userId);
 
@@ -170,9 +170,11 @@ namespace Auth.Services.Services
                 LastSignInAt = lastSignInAt,
                 ScholarStatus = isScholar ? (int)user.ScholarStatus : null,
                 GenerationName = user.Generation?.Name,
-                MentorName = user.Mentor is null
+                MentorName = user.MentorAssignments.Count == 0
                     ? null
-                    : $"{user.Mentor.FirstName} {user.Mentor.LastName}".Trim()
+                    : string.Join(", ", user.MentorAssignments
+                        .OrderBy(a => a.AssignedAt)
+                        .Select(a => $"{a.Mentor!.FirstName} {a.Mentor.LastName}".Trim()))
             };
         }
 
@@ -288,6 +290,63 @@ namespace Auth.Services.Services
                 "Admin.SignedOutEverywhere", adminId, $"Target={userId} Revoked={live}", ipAddress);
 
             return live;
+        }
+
+        public async Task<DeleteAccountsResultDto> DeleteAccountsAsync(
+            string adminId, IReadOnlyCollection<string> userIds, string? ipAddress = null, CancellationToken cancellationToken = default)
+        {
+            var result = new DeleteAccountsResultDto();
+            var ids = userIds.Distinct().ToList();
+
+            var users = await _context.Users.Where(u => ids.Contains(u.Id)).ToListAsync(cancellationToken);
+            var adminIds = (await _userManager.GetUsersInRoleAsync(AppRoles.Admin)).Select(u => u.Id).ToHashSet();
+
+            foreach (var id in ids.Where(id => users.All(u => u.Id != id)))
+            {
+                result.Skipped.Add(new DeleteAccountSkipDto { UserId = id, Reason = "Not found." });
+            }
+
+            foreach (var user in users)
+            {
+                var name = $"{user.FirstName} {user.LastName}".Trim();
+                var reason = DeleteRefusal(user, adminId, adminIds);
+                if (reason is not null)
+                {
+                    result.Skipped.Add(new DeleteAccountSkipDto { UserId = user.Id, Name = name, Reason = reason });
+                    continue;
+                }
+
+                await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+                // The two kinds of row the database won't remove on its own: submission
+                // flags have no foreign key, and kudos received block the delete.
+                await _context.JournalSubmissions.Where(j => j.ScholarId == user.Id).ExecuteDeleteAsync(cancellationToken);
+                await _context.Kudos.Where(k => k.ToUserId == user.Id).ExecuteDeleteAsync(cancellationToken);
+
+                EnsureSucceeded(await _userManager.DeleteAsync(user));
+                await transaction.CommitAsync(cancellationToken);
+
+                // Audit rows keep the event but lose the link to the deleted account, so the
+                // payload records what was removed without keeping the person's details.
+                await _auditService.LogAsync(
+                    "Admin.AccountDeleted", adminId,
+                    $"Target={user.Id} Status={user.ScholarStatus} WasActive={user.IsActive}", ipAddress);
+
+                result.DeletedCount++;
+            }
+
+            return result;
+        }
+
+        private static string? DeleteRefusal(User user, string adminId, HashSet<string> adminIds)
+        {
+            if (user.Id == adminId) return "You cannot delete your own account.";
+            if (adminIds.Contains(user.Id)) return "Administrators cannot be deleted. Remove the Admin role first.";
+
+            var finished = user.ScholarStatus is ScholarStatus.Alumni or ScholarStatus.Withdrawn;
+            return user.IsActive && !finished
+                ? "Only deactivated accounts, alumni and withdrawn scholars can be deleted. Deactivate it first."
+                : null;
         }
 
         private async Task<User> FindAsync(string userId) =>

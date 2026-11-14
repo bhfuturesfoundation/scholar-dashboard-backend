@@ -50,7 +50,10 @@ namespace Auth.Services.Services.Operations
                     u.IsActive,
                     u.EmailConfirmed,
                     u.CreatedAt,
-                    MentorName = u.Mentor != null ? u.Mentor.FirstName + " " + u.Mentor.LastName : null
+                    MentorNames = u.MentorAssignments
+                        .OrderBy(a => a.AssignedAt)
+                        .Select(a => a.Mentor!.FirstName + " " + a.Mentor.LastName)
+                        .ToList()
                 })
                 .ToListAsync(cancellationToken);
 
@@ -105,7 +108,7 @@ namespace Auth.Services.Services.Operations
                     rolesByUser.TryGetValue(user.Id, out var roles) ? roles : string.Empty,
                     user.IsActive,
                     user.EmailConfirmed,
-                    user.MentorName,
+                    string.Join(", ", user.MentorNames),
                     submissionCounts.TryGetValue(user.Id, out var count) ? count : 0,
                     user.CreatedAt
                 });
