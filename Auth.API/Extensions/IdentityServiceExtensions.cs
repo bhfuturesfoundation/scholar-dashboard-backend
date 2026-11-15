@@ -68,6 +68,12 @@ namespace Auth.API.Extensions
                 opts.MaxActiveSessionsPerUser = 5;
                 opts.EnableTokenRotation = true;
                 opts.DetectTokenReuse = true;
+                // SESSION_MAX_DAYS overrides how long a sign-in may last before the user has
+                // to log in again, regardless of activity.
+                opts.AbsoluteSessionLifetimeDays =
+                    int.TryParse(Environment.GetEnvironmentVariable("SESSION_MAX_DAYS"), out var maxDays) && maxDays is >= 1 and <= 365
+                        ? maxDays
+                        : 30;
             });
 
             var key = Encoding.ASCII.GetBytes(secret);

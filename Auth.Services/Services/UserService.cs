@@ -185,7 +185,14 @@ namespace Auth.Services.Services
             // lockoutOnFailure was false, which meant the configured lockout policy
             // (5 attempts / 15 minutes) never actually applied — passwords could be guessed
             // indefinitely. Counting failures is the entire point of that configuration.
-            var result = await _signInManager.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
+            // A temporary password is generated without whitespace, so whitespace around it can
+            // only be a copy-paste artefact (a trailing space or newline from an email or chat
+            // message). Scholars on temp passwords were failing to get in at all; trimming for
+            // them alone fixes that without touching passwords people chose themselves, where
+            // a leading or trailing space could be deliberate. One check, not two, so the
+            // lockout counter still sees exactly one attempt.
+            var candidate = user.MustChangePassword ? password.Trim() : password;
+            var result = await _signInManager.CheckPasswordSignInAsync(user, candidate, lockoutOnFailure: true);
 
             if (result.IsLockedOut)
             {

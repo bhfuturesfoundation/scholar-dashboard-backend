@@ -38,5 +38,13 @@ namespace Auth.Models.Entities
         public string? CreatedByIp { get; set; }
         public string? RevokedByIp { get; set; }
         public string? DeviceInfo { get; set; }
+
+        /// <summary>
+        /// Hard end of the sign-in session this token belongs to, set at login and inherited
+        /// unchanged by every rotated token. <see cref="ExpiryTime"/> slides forward on each
+        /// rotation; without a fixed deadline an open tab renews itself forever and the user
+        /// is never asked to sign in again. Null only on tokens issued before this existed.
+        /// </summary>
+        public DateTime? SessionExpiresAt { get; set; }
     }
 }

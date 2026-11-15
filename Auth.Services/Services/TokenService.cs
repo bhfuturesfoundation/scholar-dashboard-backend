@@ -75,9 +75,9 @@ namespace Auth.Services.Services
                 claims: claims,
                 expires: DateTime.UtcNow.AddMinutes(_jwtSettings.ExpirationInMinutes),
                 signingCredentials: signingCredentials);
-            var token = new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken);
-            _logger.LogInformation("Generated JWT: {Token}", token);
-            return token;
+            // Never log the token itself: it is a bearer credential, and anyone with read
+            // access to the logs could replay it as that user until it expires.
+            return new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken);
         }
 
         private async Task EnforceMaxActiveSessionsAsync(string userId, string ipAddress)
@@ -105,8 +105,21 @@ namespace Auth.Services.Services
             }
         }
 
-        public async Task<string> GenerateRefreshTokenAsync(User user, string ipAddress = null)
+        /// <summary>A refresh token for a brand-new sign-in session.</summary>
+        public Task<string> GenerateRefreshTokenAsync(User user, string ipAddress = null) =>
+            GenerateRefreshTokenAsync(user, ipAddress, sessionExpiresAt: null);
+
+        /// <param name="sessionExpiresAt">
+        /// The session deadline to carry forward when rotating; null starts a new session.
+        /// The token's own expiry is clamped to it, so rotation can never outlive the session.
+        /// </param>
+        private async Task<string> GenerateRefreshTokenAsync(User user, string ipAddress, DateTime? sessionExpiresAt)
         {
+            var now = DateTime.UtcNow;
+            var sessionDeadline = sessionExpiresAt
+                ?? now.AddDays(_refreshTokenSettings.AbsoluteSessionLifetimeDays);
+            var slidingExpiry = now.AddDays(_jwtSettings.RefreshTokenExpirationInDays);
+
             if (_refreshTokenSettings.MaxActiveSessionsPerUser > 0)
             {
                 await EnforceMaxActiveSessionsAsync(user.Id, ipAddress);
@@ -121,8 +134,9 @@ namespace Auth.Services.Services
             {
                 Token = refreshToken,
                 UserId = user.Id,
-                ExpiryTime = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpirationInDays),
-                CreatedAt = DateTime.UtcNow,
+                ExpiryTime = slidingExpiry < sessionDeadline ? slidingExpiry : sessionDeadline,
+                SessionExpiresAt = sessionDeadline,
+                CreatedAt = now,
                 CreatedByIp = ipAddress,
                 RefreshCount = 0,
             };
@@ -259,7 +273,12 @@ namespace Auth.Services.Services
                 oldToken.RevokedByIp = ipAddress;
                 oldToken.RevokeReason = "Replaced by new token (normal rotation)";
 
-                var newRefreshToken = await GenerateRefreshTokenAsync(user, ipAddress);
+                // Inherit the session deadline. A token from before deadlines existed has
+                // none, so its session gets the full lifetime from now — every open session
+                // is capped from this deploy on, instead of being grandfathered in forever.
+                var newRefreshToken = await GenerateRefreshTokenAsync(
+                    user, ipAddress,
+                    oldToken.SessionExpiresAt ?? DateTime.UtcNow.AddDays(_refreshTokenSettings.AbsoluteSessionLifetimeDays));
 
                 oldToken.ReplacedByToken = newRefreshToken;
 

@@ -1790,6 +1790,9 @@ namespace Auth.Models.Migrations
                     b.Property<string>("RevokedByIp")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("SessionExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Token")
                         .IsRequired()
                         .HasColumnType("text");

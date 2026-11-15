@@ -22,5 +22,14 @@
         /// be useful to someone replaying a token captured earlier.
         /// </summary>
         public int RotationGraceSeconds { get; set; } = 60;
+
+        /// <summary>
+        /// Longest a sign-in can last, however often it is refreshed. Rotation used to give
+        /// each new refresh token a fresh <see cref="ExpirationInDays"/>, so an always-open
+        /// tab never expired (one account renewed itself every few hours for a month).
+        /// <see cref="MaxRefreshCount"/> was meant to stop that but is counted per token,
+        /// and every rotated token starts again at zero.
+        /// </summary>
+        public int AbsoluteSessionLifetimeDays { get; set; } = 30;
     }
 }

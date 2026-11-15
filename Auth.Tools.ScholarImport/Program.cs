@@ -37,8 +37,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-var csvPath = args.FirstOrDefault(a => !a.StartsWith("--"));
+// The CSV is the first positional argument — skipping the values that follow flags which
+// take one, so `--out <folder> file.csv` no longer treats the folder as the CSV.
+var flagsWithValue = new HashSet<string> { "--out", "--connection-string" };
+var csvPath = args.Where((a, i) => !a.StartsWith("--") && (i == 0 || !flagsWithValue.Contains(args[i - 1])))
+    .FirstOrDefault();
 var commit = args.Contains("--commit");
+// Off by default: a new email under a name that already has an account is far more often
+// the same person (Oct 2026 intake created four duplicates this way) than a namesake.
+var allowNameMatch = args.Contains("--allow-name-match");
 var outDirArg = Array.IndexOf(args, "--out");
 var outDir = outDirArg >= 0 && outDirArg + 1 < args.Length
     ? args[outDirArg + 1]
@@ -157,6 +164,36 @@ if (!await roleManager.RoleExistsAsync(AppRoles.User))
 // the intake form, for people who need an account but have no goals to import: mentors,
 // and scholars who missed the intake. Same guarantees as the intake path — UserManager for
 // hashing, dry run by default, existing emails never touched, credentials written once.
+// Accounts by person rather than by address: name with diacritics folded, so "Hana Helać"
+// and "Hana Helac" are one key. Used to refuse creating a second account for someone who
+// simply used a different email this cycle.
+static string NameKey(string? first, string? last)
+{
+    var folded = $"{first} {last}".Replace('đ', 'd').Replace('Đ', 'D').Normalize(NormalizationForm.FormD);
+    var letters = folded.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark);
+    return string.Join(' ', new string(letters.ToArray()).ToLowerInvariant()
+        .Split(new[] { ' ', '-' }, StringSplitOptions.RemoveEmptyEntries));
+}
+
+var emailByName = (await context.Users
+        .Where(u => u.Email != null)
+        .Select(u => new { u.FirstName, u.LastName, u.Email, u.IsActive })
+        .ToListAsync())
+    .GroupBy(u => NameKey(u.FirstName, u.LastName))
+    // Point at the account the person actually uses, not a deactivated duplicate.
+    .ToDictionary(g => g.Key, g => g.OrderByDescending(u => u.IsActive).First().Email!, StringComparer.Ordinal);
+
+// Null when it's fine to create; otherwise why not.
+string? NameClash(string first, string last, string normalizedEmail)
+{
+    if (allowNameMatch) return null;
+    return emailByName.TryGetValue(NameKey(first, last), out var other) &&
+           !string.Equals(other, normalizedEmail, StringComparison.OrdinalIgnoreCase)
+        ? $"{first} {last} already has an account under {other} — not created, to avoid a duplicate. " +
+          "Use that account (or change its email), or re-run with --allow-name-match if this really is a different person."
+        : null;
+}
+
 if (args.Contains("--accounts"))
 {
     return await RunAccountsOnlyAsync();
@@ -206,6 +243,11 @@ async Task<int> RunAccountsOnlyAsync()
         if (!known.Add(normalized))
         {
             notes.Add($"{email}: an account with this email already exists — left untouched.");
+            continue;
+        }
+        if (NameClash(first, last, normalized) is { } clash)
+        {
+            notes.Add($"{email}: {clash}");
             continue;
         }
 
@@ -523,6 +565,13 @@ while (await csv.ReadAsync())
         await context.SaveChangesAsync();
         updatedExisting++;
         issues.Add($"Row {rowNumber} ({email}): existing account — {statusNote}, attached {skills.Count} skill answer(s).");
+        continue;
+    }
+
+    if (NameClash(first, last, normalized) is { } clash)
+    {
+        failed++;
+        issues.Add($"Row {rowNumber} ({email}): {clash}");
         continue;
     }
 
