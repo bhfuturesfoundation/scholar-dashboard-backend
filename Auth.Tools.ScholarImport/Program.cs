@@ -13,6 +13,9 @@
 //
 // Usage:
 //   dotnet run -- <path-to-csv> [--commit] [--out <output-folder>] [--connection-string <url>]
+//   dotnet run -- <roster.csv> --accounts [--commit] ...   (Email, First name, Last name, Role, Status)
+//
+// Put the CSV path first: the first argument not starting with "--" is taken as the CSV.
 //
 // Connection: either a single Postgres URL (postgres://user:pass@host:port/db — this is what
 // Railway's "Connect" tab shows, use the PUBLIC one since this tool runs outside Railway's
@@ -147,6 +150,119 @@ if (!await roleManager.RoleExistsAsync(AppRoles.User))
     Console.WriteLine($"Role '{AppRoles.User}' does not exist on this database — expected it to " +
                        "already be seeded by the running app. Aborting rather than guessing.");
     return 1;
+}
+
+// ── Accounts-only mode ───────────────────────────────────────────────────────
+// `--accounts` reads a plain roster (Email, First name, Last name, Role, Status) instead of
+// the intake form, for people who need an account but have no goals to import: mentors,
+// and scholars who missed the intake. Same guarantees as the intake path — UserManager for
+// hashing, dry run by default, existing emails never touched, credentials written once.
+if (args.Contains("--accounts"))
+{
+    return await RunAccountsOnlyAsync();
+}
+
+async Task<int> RunAccountsOnlyAsync()
+{
+    var known = new HashSet<string>(
+        await context.Users.Where(u => u.Email != null).Select(u => u.Email!.ToLower()).ToListAsync(),
+        StringComparer.Ordinal);
+    var generationId = await context.ScholarGenerations
+        .Where(g => g.IsCurrent).Select(g => (int?)g.Id).FirstOrDefaultAsync();
+
+    using var rosterReader = new StreamReader(csvPath, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
+    using var roster = new CsvReader(rosterReader, new CsvConfiguration(CultureInfo.InvariantCulture)
+    {
+        TrimOptions = TrimOptions.Trim,
+        HeaderValidated = null,
+        MissingFieldFound = null,
+    });
+
+    var made = new List<(string First, string Last, string Email, string Role, string Password)>();
+    var notes = new List<string>();
+
+    await roster.ReadAsync();
+    roster.ReadHeader();
+    while (await roster.ReadAsync())
+    {
+        var email = roster.GetField("Email")?.Trim() ?? "";
+        var normalized = email.ToLowerInvariant();
+        var first = roster.GetField("First name")?.Trim() ?? "";
+        var last = roster.GetField("Last name")?.Trim() ?? "";
+        var roleName = roster.GetField("Role")?.Trim() ?? "";
+        var status = MapStatus(roster.GetField("Status") ?? "");
+
+        if (!LooksLikeEmail(normalized) || string.IsNullOrWhiteSpace(first))
+        {
+            notes.Add($"{email}: missing/invalid email or name — skipped.");
+            continue;
+        }
+        // Only the two roles this tool is meant to hand out. A typo must not mint an Admin.
+        if (roleName != AppRoles.Mentor && roleName != AppRoles.User)
+        {
+            notes.Add($"{email}: role '{roleName}' is not Mentor or User — skipped.");
+            continue;
+        }
+        if (!known.Add(normalized))
+        {
+            notes.Add($"{email}: an account with this email already exists — left untouched.");
+            continue;
+        }
+
+        var isMentor = roleName == AppRoles.Mentor;
+        if (!commit)
+        {
+            notes.Add($"{email}: would create {roleName} account for {first} {last}.");
+            continue;
+        }
+
+        var password = GeneratePassword();
+        var account = new User
+        {
+            UserName = email,
+            Email = email,
+            FirstName = first,
+            LastName = last,
+            // Mirrors existing data: mentors carry the "Mentor" title, no programme status
+            // and no cohort; scholars get the status label and the current cohort.
+            Title = isMentor ? "Mentor" : Describe(status),
+            ScholarStatus = isMentor ? ScholarStatus.Unassigned : status,
+            GenerationId = isMentor ? null : generationId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            IsActive = true,
+            EmailConfirmed = false,
+            MustChangePassword = true
+        };
+
+        var created = await userManager.CreateAsync(account, password);
+        if (!created.Succeeded)
+        {
+            notes.Add($"{email}: failed — {string.Join("; ", created.Errors.Select(e => e.Description))}");
+            continue;
+        }
+        await userManager.AddToRoleAsync(account, roleName);
+        made.Add((first, last, email, roleName, password));
+    }
+
+    var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+    if (notes.Count > 0)
+    {
+        var notesPath = Path.Combine(outDir, $"accounts-issues-{stamp}.txt");
+        await File.WriteAllLinesAsync(notesPath, notes);
+        Console.WriteLine($"Notes: {notesPath}");
+    }
+    if (made.Count > 0)
+    {
+        var credPath = Path.Combine(outDir, $"accounts-credentials-{stamp}.csv");
+        var lines = new List<string> { "First name,Last name,Email,Role,Temporary password" };
+        lines.AddRange(made.Select(m => $"{m.First},{m.Last},{m.Email},{m.Role},{m.Password}"));
+        await File.WriteAllLinesAsync(credPath, lines, new UTF8Encoding(true));
+        Console.WriteLine($"Credentials (share securely, not recoverable afterwards): {credPath}");
+    }
+
+    Console.WriteLine($"{(commit ? "Created" : "Dry run, would create")}: {(commit ? made.Count : notes.Count(n => n.Contains("would create")))}");
+    return 0;
 }
 
 var questionIds = await context.Questions
