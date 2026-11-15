@@ -289,6 +289,8 @@ static string GeneratePassword()
 
 var created = 0;
 var skippedExisting = 0;
+var updatedExisting = 0;
+var promotedToSenior = 0;
 var skippedEmptyRow = 0;
 var failed = 0;
 var unassignedStatus = 0;
@@ -341,17 +343,72 @@ while (await csv.ReadAsync())
         continue;
     }
 
-    if (existingEmails.Contains(normalized))
-    {
-        skippedExisting++;
-        issues.Add($"Row {rowNumber} ({email}): account already exists — left untouched, skipped.");
-        continue;
-    }
-
     var skills = slotColumns
         .Select(s => (s.Status, Text: csv.GetField(s.TextCol)?.Trim(), Rating: csv.GetField(s.RatingCol)?.Trim()))
         .Where(s => !string.IsNullOrWhiteSpace(s.Text))
         .ToList();
+
+    if (existingEmails.Contains(normalized))
+    {
+        // A returning scholar: never re-create or touch their password/role. CSV status is
+        // only acted on as an explicit Junior->Senior advance (this cycle's self-reported
+        // promotion) — anything else is logged for a human to look at rather than guessed.
+        // This cycle's skill/goal answers are attached regardless, since that is the point
+        // of the re-run even for someone who already has an account.
+        skippedExisting++;
+
+        if (!commit) continue;
+
+        var existingUser = await context.Users.FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == normalized);
+        if (existingUser is null)
+        {
+            failed++;
+            issues.Add($"Row {rowNumber} ({email}): expected an existing account but could not load it.");
+            continue;
+        }
+
+        var statusNote = "status unchanged";
+        if (status == ScholarStatus.Senior && existingUser.ScholarStatus == ScholarStatus.Junior)
+        {
+            existingUser.ScholarStatus = ScholarStatus.Senior;
+            existingUser.Title = Describe(ScholarStatus.Senior);
+            existingUser.UpdatedAt = DateTime.UtcNow;
+            promotedToSenior++;
+            statusNote = "advanced Junior -> Senior";
+        }
+        else if (status != existingUser.ScholarStatus)
+        {
+            statusNote = $"CSV says '{statusRaw}' but account is currently {existingUser.ScholarStatus} — left untouched, needs a look";
+        }
+
+        // Retire last cycle's goal in every slot this row replaces. The journal shows every
+        // *active* skill, so without this a returning scholar sees old and new goals side by
+        // side (this is how 22 scholars ended up with 8). Mirrors SkillService, which keeps
+        // exactly one active skill per slot. Slots the CSV leaves blank keep their old goal.
+        var replacedSlots = skills.Select(s => s.Status).ToList();
+        var supersededSkills = await context.Skills
+            .Where(s => s.ScholarId == existingUser.Id && s.Active && replacedSlots.Contains(s.Slot))
+            .ToListAsync();
+        foreach (var old in supersededSkills) old.Active = false;
+
+        foreach (var skill in skills)
+        {
+            context.Skills.Add(new Skill
+            {
+                ScholarId = existingUser.Id,
+                QuestionId = questionIds[skill.Status],
+                SkillAnswer = skill.Text!,
+                Slot = skill.Status,
+                Active = true,
+                SatisfactionRating = string.IsNullOrWhiteSpace(skill.Rating) ? null : skill.Rating
+            });
+        }
+
+        await context.SaveChangesAsync();
+        updatedExisting++;
+        issues.Add($"Row {rowNumber} ({email}): existing account — {statusNote}, attached {skills.Count} skill answer(s).");
+        continue;
+    }
 
     if (!commit)
     {
@@ -427,7 +484,9 @@ if (commit && credentials.Count > 0)
 
 Console.WriteLine();
 Console.WriteLine($"{(commit ? "Created" : "Would create")}: {created}");
-Console.WriteLine($"Skipped (already existed): {skippedExisting}");
+Console.WriteLine(commit
+    ? $"Existing accounts updated (skills attached, {promotedToSenior} advanced Junior->Senior): {updatedExisting}"
+    : $"Existing accounts that would be touched: {skippedExisting}");
 Console.WriteLine($"Skipped (blank row): {skippedEmptyRow}");
 Console.WriteLine($"Unrecognized status (left Unassigned): {unassignedStatus}");
 Console.WriteLine($"Failed: {failed}");
